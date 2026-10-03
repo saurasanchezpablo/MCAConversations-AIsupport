@@ -12,6 +12,7 @@
     "InteractionDialogueMessageMixin",
     "McaInteractionCloseMixin",
     "NetworkHandlerMixin",
+    "OpenAIChatAIMixin",
     "QuestionMixin"
   ],
   "client": [

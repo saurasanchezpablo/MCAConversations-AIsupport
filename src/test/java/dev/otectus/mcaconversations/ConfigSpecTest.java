@@ -74,7 +74,15 @@ class ConfigSpecTest {
             Map.entry("history.commitmentCapPerPair", 8),
             Map.entry("history.playerClaimCapPerPair", 16),
             Map.entry("history.socialEdgeCapPerVillager", 16),
-            Map.entry("history.topicRecencyCapPerPair", 32));
+            Map.entry("history.topicRecencyCapPerPair", 32),
+            Map.entry("ai.relationshipEffects", true),
+            Map.entry("ai.gameplayEffects", true),
+            Map.entry("ai.minConfidence", 0.6),
+            Map.entry("ai.memoriesPerPair", 12),
+            Map.entry("ai.turnCooldownTicks", 40),
+            Map.entry("ai.conversationIdleTicks", 6000),
+            Map.entry("ai.requestTimeoutSeconds", 25),
+            Map.entry("ai.requestJsonMode", false));
 
     @Test
     void allThreeSpecsBuild() {
@@ -113,7 +121,7 @@ class ConfigSpecTest {
                 "rpg.enableDispositions", "rpg.enableChecks", "rpg.debugRpg",
                 "chat.enableChatMode", "chat.chatModeGreetOnApproach",
                 "dynamic.enabled", "dynamic.debugDirector", "history.enabled",
-                "group.enabled", "debug.debugLogging")) {
+                "group.enabled", "debug.debugLogging", "ai.enabled", "ai.debugAi")) {
             assertTrue(common.contains(path), path + " must stay in the common spec");
         }
     }
@@ -165,6 +173,17 @@ class ConfigSpecTest {
         assertEquals(16, McaConversationsConfig.playerClaimCapPerPair());
         assertEquals(16, McaConversationsConfig.socialEdgeCapPerVillager());
         assertEquals(32, McaConversationsConfig.topicRecencyCapPerPair());
+
+        assertTrue(McaConversationsConfig.aiRelationshipEffects());
+        assertTrue(McaConversationsConfig.aiGameplayEffects());
+        assertEquals(0.6, McaConversationsConfig.aiMinConfidence());
+        assertEquals(12, McaConversationsConfig.aiMemoriesPerPair());
+        assertEquals(40, McaConversationsConfig.aiTurnCooldownTicks());
+        assertEquals(6000, McaConversationsConfig.aiConversationIdleTicks());
+        assertEquals(25, McaConversationsConfig.aiRequestTimeoutSeconds());
+        assertFalse(McaConversationsConfig.aiRequestJsonMode());
+        // The integration is opt-in: with no config loaded it is off, so MCA's chat AI is untouched.
+        assertFalse(McaConversationsConfig.aiEnabled());
     }
 
     @Test

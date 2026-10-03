@@ -99,6 +99,7 @@ public final class ConversationsEvents {
             ChatModeSession.clear(player.getUUID(), CloseReason.DISCONNECTED);
             GreetOnApproach.clear(player.getUUID());
             dev.otectus.mcaconversations.hub.DynamicHub.clear(player.getUUID());
+            dev.otectus.mcaconversations.ai.AiConversations.onPlayerLogout(player.getUUID());
         }
     }
 
@@ -120,6 +121,7 @@ public final class ConversationsEvents {
         VillagerAttention.reset();
         GreetOnApproach.reset();
         dev.otectus.mcaconversations.hub.DynamicHub.reset();
+        dev.otectus.mcaconversations.ai.AiConversations.onServerStopped();
         CapitalsBridge.Holder.clearCaches();
         dev.otectus.mcaconversations.compat.Townstead.clearCaches();
         dev.otectus.mcaconversations.gift.GiftNeedObservation.reset();
@@ -201,6 +203,12 @@ public final class ConversationsEvents {
         ConversationHistorySavedData.get(event.getServer()).store()
                 .setLiveSessionPredicate(ConversationSessions::hasSessionWith);
 
+        try {
+            dev.otectus.mcaconversations.ai.AiConversations.onServerStarted(event.getServer());
+        } catch (Throwable t) {
+            McaConversations.LOGGER.debug("AI memory prune failed; ignoring", t);
+        }
+
         McaConversationsConfig.Common c = McaConversationsConfig.COMMON;
         if (!c.enableChatMode.get()) {
             return;
@@ -248,6 +256,7 @@ public final class ConversationsEvents {
             dropDispositions(event.getEntity());
             dropProgress(event.getEntity());
             dropLivingHistory(event.getEntity());
+            dropAiMemory(event.getEntity());
             ConversationSessions.clearVillager(event.getEntity().getUUID(), CloseReason.SPEAKER_DEAD);
         }
     }
@@ -298,6 +307,17 @@ public final class ConversationsEvents {
             }
         } catch (Throwable t) {
             McaConversations.LOGGER.debug("living-history death-prune failed; ignoring", t);
+        }
+    }
+
+    /** A dead villager's AI-conversation memories go with the rest of what it knew of each player. */
+    private static void dropAiMemory(Entity villager) {
+        try {
+            if (villager.getServer() != null) {
+                dev.otectus.mcaconversations.ai.AiConversations.onVillagerDeath(villager.getServer(), villager.getUUID());
+            }
+        } catch (Throwable t) {
+            McaConversations.LOGGER.debug("AI memory death-prune failed; ignoring", t);
         }
     }
 

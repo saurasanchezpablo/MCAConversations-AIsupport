@@ -166,6 +166,16 @@ class MixinTargetProbeTest {
         if (mixin.equals("InteractScreenChoiceMixin")) {
             checkQuestionCapture(jar, target, problems);
         }
+        // One injector per MCA generation: the synchronous strategy method through 7.7.0, the
+        // asynchronous one from 7.7.1. Each build must have exactly one of them, or AI conversations
+        // would silently stop taking MCA's request (none) or take it twice (both).
+        if (mixin.equals("OpenAIChatAIMixin")) {
+            int present = (hasMember(target, "answer") ? 1 : 0) + (hasMember(target, "requestAndApply") ? 1 : 0);
+            if (present != 1) {
+                problems.add(jar.getFileName() + ": OpenAIChatAIMixin expects exactly one of answer/requestAndApply on "
+                        + target.getName() + ", found " + present);
+            }
+        }
         checkShadows(jar, mixin, compiled.binaryName(), target, problems);
     }
 
