@@ -63,6 +63,8 @@ public final class VillagerVoices {
     /** Clips that actually started playing. */
     int clipsPlayed;
     String lastError = "";
+    /** What happened to the most recent villager lines, newest first (shown by /mcavoice status). */
+    final java.util.Deque<String> decisions = new java.util.ArrayDeque<>();
     long lastLatencyMillis = -1;
     int lastAudioBytes = -1;
 
@@ -124,34 +126,62 @@ public final class VillagerVoices {
         try {
             settings = Settings.read();
         } catch (Throwable t) {
-            return false; // config not loaded yet
+            decide(null, "", "left to MCA: client config not loaded");
+            return false;
         }
+        String text = ChatFormatting.stripFormatting(message.getString()).strip();
         if (!settings.active()) {
             linesLeftToMca++;
+            decide(settings, text, "left to MCA: engine " + settings.provider() + " has no key or is MCA");
             return false;
         }
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || mc.player == null) {
+            decide(settings, text, "left to MCA: no world");
             return false;
         }
         Entity villager = findVillager(mc, sender);
-        String text = ChatFormatting.stripFormatting(message.getString()).strip();
         long now = System.currentTimeMillis();
         Optional<VoiceDirection> directed = pending.take(sender, text, now);
         if (directed.isEmpty() && !settings.scripted()) {
+            decide(settings, text, "left to MCA: scripted line and voiceScriptedLines is off");
             return false;
         }
-        if (villager == null || text.isEmpty() || McaHandles.silentVoice(villager)) {
-            return true; // nothing to say aloud; MCA would not have voiced it either
+        if (villager == null) {
+            decide(settings, text, "silent: speaking villager not loaded on this client");
+            return true;
         }
-        if (villager.distanceTo(mc.player) > LISTEN_RANGE || text.length() > settings.maxCharacters()) {
+        if (text.isEmpty() || McaHandles.silentVoice(villager)) {
+            decide(settings, text, "silent: empty line, or a baby/zombified villager");
+            return true;
+        }
+        if (villager.distanceTo(mc.player) > LISTEN_RANGE) {
+            decide(settings, text, "silent: villager " + Math.round(villager.distanceTo(mc.player)) + " blocks away");
+            return true;
+        }
+        if (text.length() > settings.maxCharacters()) {
+            decide(settings, text, "silent: " + text.length() + " characters, over maxCharacters");
             return true;
         }
         VoiceDirection direction = directed.map(d -> d.anyLine() ? withText(d, text) : d)
                 .orElseGet(() -> scripted(villager, text, mc.options.languageCode));
         linesVoiced++;
+        decide(settings, text, "sent to " + settings.provider() + (directed.isPresent()
+                ? " with the server's direction (" + direction.emotion() + ", " + direction.intent().key() + ")"
+                : " as a scripted line"));
         speak(settings, villager, text, direction, null);
         return true;
+    }
+
+    private void decide(Settings settings, String text, String what) {
+        String shown = text.length() > 40 ? text.substring(0, 40) + "..." : text;
+        decisions.addFirst("\"" + shown + "\" -> " + what);
+        while (decisions.size() > 5) {
+            decisions.removeLast();
+        }
+        if (settings != null && settings.debug()) {
+            McaConversations.LOGGER.info("[voice] line \"{}\" -> {}", shown, what);
+        }
     }
 
     /**
@@ -255,12 +285,18 @@ public final class VillagerVoices {
         }
         McaConversations.LOGGER.warn("[voice] {} could not voice a line: {}", settings.provider(), cause.toString());
         long now = System.currentTimeMillis();
-        if (cause instanceof Http.Failure failure && (failure.status == 401 || failure.status == 403)
-                && now - lastNotice > NOTICE_MILLIS && Minecraft.getInstance().player != null) {
-            lastNotice = now;
-            Minecraft.getInstance().player.displayClientMessage(
-                    Component.translatable("mcaconversations.voice.key_rejected", settings.provider().name())
-                            .withStyle(ChatFormatting.GRAY), false);
+        if (cause instanceof Http.Failure failure && now - lastNotice > NOTICE_MILLIS && Minecraft.getInstance().player != null) {
+            if (failure.status == 401 || failure.status == 403) {
+                lastNotice = now;
+                Minecraft.getInstance().player.displayClientMessage(
+                        Component.translatable("mcaconversations.voice.key_rejected", settings.provider().name())
+                                .withStyle(ChatFormatting.GRAY), false);
+            } else if (failure.status == 429) {
+                lastNotice = now;
+                Minecraft.getInstance().player.displayClientMessage(Component.literal("Voice: " + settings.provider()
+                        + " usage limit reached (HTTP 429). Lines stay silent until it resets; /mcavoice scripted off "
+                        + "saves quota for AI conversations.").withStyle(ChatFormatting.YELLOW), false);
+            }
         }
     }
 

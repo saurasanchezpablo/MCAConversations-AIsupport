@@ -117,6 +117,16 @@ public final class VoiceCommands {
         if (!v.lastError.isEmpty()) {
             line("Last error", v.lastError, false);
         }
+        if (v.decisions.isEmpty()) {
+            say(Component.literal(" No villager line has reached the voice yet. Talk to a villager, then run this again.")
+                    .withStyle(ChatFormatting.YELLOW));
+        } else {
+            say(Component.literal(" Last villager lines:").withStyle(ChatFormatting.GRAY));
+            for (String decision : v.decisions) {
+                say(Component.literal("  " + decision).withStyle(decision.contains("sent to") ? ChatFormatting.WHITE
+                        : ChatFormatting.YELLOW));
+            }
+        }
         return 1;
     }
 
