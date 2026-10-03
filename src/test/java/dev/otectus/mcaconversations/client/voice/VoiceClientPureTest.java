@@ -70,4 +70,11 @@ class VoiceClientPureTest {
         assertArrayEquals(audio, pcm.data());
         assertEquals(16000, pcm.sampleRate());
     }
+
+    @Test
+    void keysAreNeverShownInFull() {
+        assertEquals("(not set)", VoiceCommands.mask(""));
+        assertEquals("****", VoiceCommands.mask("abc"));
+        assertEquals("sk-p...wxyz", VoiceCommands.mask("sk-proj-1234567890wxyz"));
+    }
 }

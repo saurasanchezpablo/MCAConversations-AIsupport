@@ -51,11 +51,27 @@ public final class VillagerVoices {
     };
     private long lastNotice;
 
+    // --- diagnostics, shown by /mcavoice status ------------------------------------------------------
+    /** Villager lines MCA handed to its TTS (proves the hook into MCA is live). */
+    int hookCalls;
+    /** Lines this mod took over and sent to an engine. */
+    int linesVoiced;
+    /** Lines left to MCA (engine off or no key). */
+    int linesLeftToMca;
+    /** Voice directions received from the server. */
+    int directionsReceived;
+    /** Clips that actually started playing. */
+    int clipsPlayed;
+    String lastError = "";
+    long lastLatencyMillis = -1;
+    int lastAudioBytes = -1;
+
     private VillagerVoices() {
     }
 
     /** A direction from the server. */
     public void onDirection(VoiceDirection direction) {
+        directionsReceived++;
         pending.add(direction, System.currentTimeMillis());
     }
 
@@ -103,6 +119,7 @@ public final class VillagerVoices {
      * then stay silent), false to leave it to MCA.
      */
     public boolean intercept(Component message, UUID sender) {
+        hookCalls++;
         Settings settings;
         try {
             settings = Settings.read();
@@ -110,6 +127,7 @@ public final class VillagerVoices {
             return false; // config not loaded yet
         }
         if (!settings.active()) {
+            linesLeftToMca++;
             return false;
         }
         Minecraft mc = Minecraft.getInstance();
@@ -131,23 +149,74 @@ public final class VillagerVoices {
         }
         VoiceDirection direction = directed.map(d -> d.anyLine() ? withText(d, text) : d)
                 .orElseGet(() -> scripted(villager, text, mc.options.languageCode));
-        speak(settings, villager, text, direction);
+        linesVoiced++;
+        speak(settings, villager, text, direction, null);
         return true;
     }
 
-    private void speak(Settings settings, Entity villager, String text, VoiceDirection direction) {
+    /**
+     * {@code /mcavoice test}: synthesises {@code text} with the current settings and plays it from
+     * {@code speaker}, reporting each step (or the exact failure) through {@code report}.
+     */
+    public void test(Entity speaker, String text, String language, java.util.function.Consumer<Component> report) {
+        Settings settings;
+        try {
+            settings = Settings.read();
+        } catch (Throwable t) {
+            report.accept(Component.literal("Client config not loaded: " + t).withStyle(ChatFormatting.RED));
+            return;
+        }
+        if (!settings.active()) {
+            report.accept(Component.literal(settings.provider() == VoiceProvider.MCA
+                    ? "Provider is MCA: this mod does not voice lines. Use /mcavoice provider openai|gemini."
+                    : "No API key for " + settings.provider() + ". Use /mcavoice key " + settings.provider().name().toLowerCase(Locale.ROOT)
+                    + " <key>.").withStyle(ChatFormatting.RED));
+            return;
+        }
+        VoiceDirection direction = McaHandles.isVillager(speaker) ? withText(scripted(speaker, text, language), text)
+                : new VoiceDirection(speaker.getUUID(), text, language, "happy", VoiceIntent.GREET, "warm and friendly",
+                VoiceDirection.Pace.NORMAL, 0.6f, VoiceDirection.Volume.NORMAL, "female", "adult", "", "", false, false, false);
+        report.accept(Component.literal("Synthesising with " + settings.provider() + " ("
+                + VoiceCatalog.voiceFor(settings.provider(), speaker.getUUID(), direction.gender(), direction.age()) + ")...")
+                .withStyle(ChatFormatting.GRAY));
+        speak(settings, speaker, text, direction, report);
+    }
+
+    private void speak(Settings settings, Entity villager, String text, VoiceDirection direction,
+                       java.util.function.Consumer<Component> report) {
         String voice = VoiceCatalog.voiceFor(settings.provider(), villager.getUUID(), direction.gender(), direction.age());
         String key = settings.provider() + "|" + voice + "|" + VoiceScript.instructions(direction) + "|" + text;
         Pcm cached = cache.get(key);
         long started = System.currentTimeMillis();
-        CompletableFuture<Pcm> audio = cached != null ? CompletableFuture.completedFuture(cached)
-                : settings.engine().speak(text, voice, direction);
+        CompletableFuture<Pcm> audio;
+        try {
+            audio = cached != null ? CompletableFuture.completedFuture(cached) : settings.engine().speak(text, voice, direction);
+        } catch (Throwable t) {
+            audio = CompletableFuture.failedFuture(t); // e.g. an endpoint that is not a valid URL
+        }
         audio.whenComplete((pcm, error) -> Minecraft.getInstance().execute(() -> {
             if (error != null) {
                 failed(settings, error);
+                if (report != null) {
+                    report.accept(Component.literal("Failed: " + lastError).withStyle(ChatFormatting.RED));
+                }
+                return;
+            }
+            lastLatencyMillis = System.currentTimeMillis() - started;
+            lastAudioBytes = pcm.data().length;
+            if (pcm.data().length < 2) {
+                lastError = "the engine returned no audio";
+                if (report != null) {
+                    report.accept(Component.literal("Failed: " + lastError).withStyle(ChatFormatting.RED));
+                }
                 return;
             }
             cache.put(key, pcm);
+            if (report != null) {
+                report.accept(Component.literal(String.format(Locale.ROOT, "OK: %d ms, %.1f s of audio at %d Hz. Playing now - "
+                                + "if you hear nothing, check the Voice/Speech volume slider.", lastLatencyMillis,
+                        pcm.data().length / 2.0 / pcm.sampleRate(), pcm.sampleRate())).withStyle(ChatFormatting.GREEN));
+            }
             if (settings.debug()) {
                 McaConversations.LOGGER.info("[voice] {} voice={} {}ms lang={} emotion={} intent={} brief=\"{}\"",
                         settings.provider(), voice, System.currentTimeMillis() - started, direction.language(),
@@ -171,10 +240,12 @@ public final class VillagerVoices {
         PcmSoundInstance instance = new PcmSoundInstance(villager, pcm, id, villager.getRandom().nextLong());
         playing.put(villager.getUUID(), instance);
         mc.getSoundManager().play(instance);
+        clipsPlayed++;
     }
 
     private void failed(Settings settings, Throwable error) {
         Throwable cause = error.getCause() != null ? error.getCause() : error;
+        lastError = cause.toString();
         McaConversations.LOGGER.warn("[voice] {} could not voice a line: {}", settings.provider(), cause.toString());
         long now = System.currentTimeMillis();
         if (cause instanceof Http.Failure failure && (failure.status == 401 || failure.status == 403)

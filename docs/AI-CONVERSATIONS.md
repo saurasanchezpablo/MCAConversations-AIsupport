@@ -237,6 +237,20 @@ Each villager keeps one voice that fits their gender and age (`VoiceCatalog`, ch
   they are shown in; this mod ships en_us and pt_br, so a Spanish client hears MCA's own Spanish lines
   in Spanish and this mod's untranslated ones in English.
 
+**In-game setup and diagnostics.** `/mcavoice` is a client command: it runs on your client only,
+and keys typed there are saved to `mcaconversations-client.toml`, never sent to the server.
+
+| Command | Does |
+|---|---|
+| `/mcavoice status` | Engine, masked keys, models, game language, Voice volume, villager lines seen by the MCA hook, directions received, lines voiced / left to MCA / played, last synthesis time, last error |
+| `/mcavoice test [text]` | Speaks a line from the nearest villager (or you) and reports success with timing, or the exact error |
+| `/mcavoice provider mca\|openai\|gemini` | Choose the engine |
+| `/mcavoice key openai\|gemini <key>` | Store an API key |
+| `/mcavoice model openai\|gemini <model>` | Choose the model |
+| `/mcavoice endpoint <url>` | OpenAI-compatible speech endpoint |
+| `/mcavoice scripted on\|off` | Also voice scripted lines, or only AI conversations |
+| `/mcavoice debug on\|off` | Log each voiced line |
+
 **Cost guards.**
 - Lines over `maxCharacters` are skipped, as are lines from villagers more than 32 blocks away, babies
   and zombified villagers.
