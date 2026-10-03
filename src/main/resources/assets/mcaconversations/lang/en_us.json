@@ -133,6 +133,8 @@
   "mcaconversations.ai.guide_arrived.1": "Here we are: the %1$s.",
   "mcaconversations.ai.guide_arrived.2": "This is it, the %1$s.",
   "mcaconversations.ai.guide_arrived.3": "There you go, the %1$s.",
+  "mcaconversations.ai.indicator": "Talking with %1$s",
+  "mcaconversations.ai.indicator_far": " (far)",
   "mcaconversations.ai.promise_kept.1": "You actually remembered! That means more than you'd think.",
   "mcaconversations.ai.promise_kept.2": "Well, look at that. You kept your word. Thank you, truly.",
   "mcaconversations.ai.promise_kept.3": "Ha! I half thought you'd forget. Thank you, friend.",

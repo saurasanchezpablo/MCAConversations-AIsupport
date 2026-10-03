@@ -28,6 +28,7 @@ public final class ConversationsClient {
         event.enqueueWork(() -> {
             ConversationsNetwork.installSink(ClientChoiceMessages.INSTANCE);
             ConversationsNetwork.installVoiceSink(dev.otectus.mcaconversations.client.voice.VillagerVoices.INSTANCE::onDirection);
+            ConversationsNetwork.installPartnerSink(dev.otectus.mcaconversations.client.ai.ConversationIndicator::onPartner);
             // Talk-on-click: the villager is listening, so the chat box opens ready to type.
             ConversationsNetwork.installOpenChatSink(() -> {
                 net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();

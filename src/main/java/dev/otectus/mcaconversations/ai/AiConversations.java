@@ -338,6 +338,41 @@ public final class AiConversations {
 
     static void setPartner(UUID player, UUID villager, long now) {
         PARTNERS.put(player, new Partner(villager, now));
+        notifyPartner(player, villager);
+    }
+
+    private static MinecraftServer currentServer() {
+        return net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
+    }
+
+    /** Tells the player's client who they are talking with, for the on-screen indicator. */
+    private static void notifyPartner(UUID playerId, UUID villagerId) {
+        MinecraftServer server = currentServer();
+        ServerPlayer player = server == null ? null : server.getPlayerList().getPlayer(playerId);
+        Entity villager = player == null ? null : player.serverLevel().getEntity(villagerId);
+        if (player == null || villager == null) {
+            return;
+        }
+        String name = McaCompat.getVillagerName(villager).orElse(villager.getName().getString());
+        dev.otectus.mcaconversations.network.ConversationsNetwork.sendPartner(player,
+                new dev.otectus.mcaconversations.network.ConversationPartnerS2C(Optional.of(villagerId), name,
+                        McaConversationsConfig.aiConversationIdleTicks() * 50L));
+    }
+
+    /** Ends conversations that went quiet, and tells those players' clients. */
+    private static void expirePartners(MinecraftServer server, long now) {
+        long idle = McaConversationsConfig.aiConversationIdleTicks();
+        PARTNERS.entrySet().removeIf(entry -> {
+            if (now - entry.getValue().lastTick <= idle) {
+                return false;
+            }
+            ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
+            if (player != null) {
+                dev.otectus.mcaconversations.network.ConversationsNetwork.sendPartner(player,
+                        dev.otectus.mcaconversations.network.ConversationPartnerS2C.ended());
+            }
+            return true;
+        });
     }
 
     /** The player said something to this villager in chat. The villager answers through MCA's own voice. */
@@ -520,6 +555,9 @@ public final class AiConversations {
     /** Every server tick: delayed effects, and villagers deciding to start a conversation. */
     public static void tick(MinecraftServer server) {
         AiTasks.drain(server.overworld().getGameTime());
+        if (server.getTickCount() % 20 == 0) {
+            expirePartners(server, server.overworld().getGameTime());
+        }
         AiWork.tick(server);
         AiErrands.tick(server);
         if (autoConversations()) {

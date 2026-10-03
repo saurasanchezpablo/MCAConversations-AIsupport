@@ -133,6 +133,8 @@
   "mcaconversations.ai.guide_arrived.1": "Chegamos: %1$s.",
   "mcaconversations.ai.guide_arrived.2": "É aqui, %1$s.",
   "mcaconversations.ai.guide_arrived.3": "Pronto, %1$s.",
+  "mcaconversations.ai.indicator": "Conversando com %1$s",
+  "mcaconversations.ai.indicator_far": " (longe)",
   "mcaconversations.ai.promise_kept.1": "Você lembrou mesmo! Isso significa mais do que você imagina.",
   "mcaconversations.ai.promise_kept.2": "Ora, veja só. Você cumpriu sua palavra. Obrigado, de verdade.",
   "mcaconversations.ai.promise_kept.3": "Ha! Eu meio que achei que você ia esquecer. Obrigado, amigo.",

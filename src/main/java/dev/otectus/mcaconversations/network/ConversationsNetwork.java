@@ -39,6 +39,23 @@ public final class ConversationsNetwork {
     private static volatile Runnable openChatSink = () -> {
     };
 
+    private static volatile java.util.function.Consumer<ConversationPartnerS2C> partnerSink = p -> {
+    };
+
+    public static void installPartnerSink(java.util.function.Consumer<ConversationPartnerS2C> incoming) {
+        partnerSink = incoming == null ? p -> {
+        } : incoming;
+    }
+
+    /** Tells the player who they are talking with (or that the talk is over); never throws. */
+    public static void sendPartner(net.minecraft.server.level.ServerPlayer player, ConversationPartnerS2C payload) {
+        try {
+            net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player, payload);
+        } catch (Throwable t) {
+            McaConversations.LOGGER.debug("partner send failed; ignoring", t);
+        }
+    }
+
     public static void installOpenChatSink(Runnable incoming) {
         openChatSink = incoming == null ? () -> {
         } : incoming;
@@ -112,6 +129,8 @@ public final class ConversationsNetwork {
         // Protocol 5: how a villager's line should sound, for the client's speech engine.
         registrar.playToClient(VoiceDirectionS2C.TYPE, VoiceDirectionS2C.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> voiceSink.accept(payload.direction())));
+        registrar.playToClient(ConversationPartnerS2C.TYPE, ConversationPartnerS2C.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> partnerSink.accept(payload)));
         registrar.playToClient(OpenChatS2C.TYPE, OpenChatS2C.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> openChatSink.run()));
     }

@@ -202,6 +202,13 @@ opens MCA's menu (`VillagerInteractMixin` on `VillagerEntityMCA.interactAt`):
 - Unless you were just talking, the villager speaks first.
 - Sneak + right-click opens MCA's own screen, so the family tree, profession and the rest stay reachable.
 
+**Conversation indicator.** While a conversation is live, the server sends `ConversationPartnerS2C`
+(again on each line, and once more, empty, when it lapses). The client (`ConversationIndicator`)
+shows two things:
+- "● Talking with Alice" in the top-left corner, grey with "(far)" when the villager is beyond the
+  16 blocks a typed line reaches;
+- "→ Alice" just above the chat box while typing.
+
 **Actions by word.** The model may answer an `action` effect, which is taken only if
 `AiActionContext` offered it this turn:
 
