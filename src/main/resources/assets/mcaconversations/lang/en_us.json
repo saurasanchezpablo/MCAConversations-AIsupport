@@ -114,6 +114,7 @@
   "mcaconversations.ai.refuse_trade.1": "I'm not doing business with you today. You know why.",
   "mcaconversations.ai.refuse_trade.2": "No. Not after what you said.",
   "mcaconversations.ai.refuse_trade.3": "Find someone else to trade with. I'm not in the mood for you.",
+  "mcaconversations.ai.talk_hint": "Talking with %1$s: type in chat to reply.",
   "mcaconversations.ai.unavailable": "%1$s seems lost for words right now.",
   "mcaconversations.ai.wait": "Give %1$s a moment.",
   "mcaconversations.ai.wish_fulfilled.1": "Oh! You remembered I wanted this? I... thank you.",

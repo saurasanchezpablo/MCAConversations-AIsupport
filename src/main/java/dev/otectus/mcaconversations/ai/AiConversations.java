@@ -25,18 +25,16 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 /**
  * AI conversations: MCA's villager chat AI, with consequences.
  *
  * <h2>Where this sits</h2>
- * MCA decides that a chat line is addressed to a villager (by name, nickname, or an open
- * conversation), picks that villager's strategy, and delivers whatever line comes back. This class
- * replaces only the middle of that, the OpenAI-strategy request, through {@code OpenAIChatAIMixin}:
- * MCA still routes, still owns the endpoint/model/token, still delivers, and Inworld characters are
- * untouched. So the integration is invisible to a player, and turning {@code ai.enabled} off gives
- * MCA's behaviour back exactly.
+ * This mod routes typed chat to villagers itself ({@link AiChatRouter}), lets MCA's Talk button open
+ * an AI conversation in AI-only mode, and lets villagers start conversations ({@link AiInitiative}).
+ * Every line goes out through the villager's own MCA message queue, so it looks and sounds like MCA's
+ * chat AI; MCA's own chat-AI routing is silenced meanwhile ({@code OpenAIChatAIMixin}). The endpoint,
+ * model and token are MCA's. Turning {@code ai.enabled} off gives MCA's behaviour back exactly.
  *
  * <h2>One turn</h2>
  * <ol>
@@ -84,56 +82,25 @@ public final class AiConversations {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Entry points, one per MCA generation
-    // ---------------------------------------------------------------------------------------------
-
-    /**
-     * MCA 7.7.1 and later: called on the server thread from {@code OpenAIChatAI.requestAndApply}, whose
-     * future MCA completes into {@code ConversationManager.addMessage} on the server thread.
-     */
-    public static CompletableFuture<Optional<String>> answerAsync(ServerPlayer player, Object villager, String message) {
-        try {
-            return begin(player, villager, message);
-        } catch (Throwable t) {
-            McaConversations.LOGGER.error("AI conversation turn failed to start", t);
-            return CompletableFuture.completedFuture(Optional.empty());
-        }
-    }
-
-    /**
-     * MCA 7.6 through 7.7.0: called from {@code OpenAIChatAI.answer} on a common-pool thread MCA
-     * already dedicates to the request, and expected to return the line synchronously, as MCA's own
-     * blocking HTTP call does. The turn itself still runs on the server thread and the transport
-     * threads; this thread only waits for it, with a hard limit.
-     */
-    public static Optional<String> answerBlocking(ServerPlayer player, Object villager, String message) {
-        MinecraftServer server = player == null ? null : player.getServer();
-        if (server == null) {
-            return Optional.empty();
-        }
-        try {
-            return CompletableFuture.supplyAsync(() -> begin(player, villager, message), server)
-                    .thenCompose(future -> future)
-                    .get(McaConversationsConfig.aiRequestTimeoutSeconds() + 10L, TimeUnit.SECONDS);
-        } catch (Throwable t) {
-            // Timed out waiting for a stopping server, or interrupted: nothing was applied.
-            McaConversations.LOGGER.debug("AI conversation turn abandoned", t);
-            return Optional.empty();
-        }
-    }
-
-    // ---------------------------------------------------------------------------------------------
     // The turn
     // ---------------------------------------------------------------------------------------------
 
-    /** Step 1, on the server thread. */
-    private static CompletableFuture<Optional<String>> begin(ServerPlayer player, Object villagerObject, String rawMessage) {
+    /**
+     * Step 1, on the server thread.
+     *
+     * @param openerReason null for a reply to the player; otherwise the villager starts the
+     *                     conversation, for this reason, and the turn changes nothing in the game
+     */
+    private static CompletableFuture<Optional<String>> begin(ServerPlayer player, Object villagerObject, String rawMessage,
+                                                             String openerReason) {
         MinecraftServer server = player == null ? null : player.getServer();
         if (server == null || !(villagerObject instanceof Entity villager) || !McaCompat.isMcaVillager(villager)
                 || player.isRemoved() || villager.isRemoved() || player.level() != villager.level()) {
             return CompletableFuture.completedFuture(Optional.empty());
         }
-        String message = AiText.clean(rawMessage, MAX_PLAYER_MESSAGE);
+        boolean opener = openerReason != null;
+        String message = opener ? openerInstruction(player.getName().getString(), openerReason)
+                : AiText.clean(rawMessage, MAX_PLAYER_MESSAGE);
         if (message.isEmpty()) {
             return CompletableFuture.completedFuture(Optional.empty());
         }
@@ -155,6 +122,9 @@ public final class AiConversations {
         AiSessions.Admission admission = SESSIONS.admit(villagerId, playerId, now,
                 McaConversationsConfig.aiTurnCooldownTicks(), idleTicks);
         if (admission != AiSessions.Admission.ADMITTED) {
+            if (opener) {
+                return CompletableFuture.completedFuture(Optional.empty());
+            }
             player.displayClientMessage(Component.translatable(admission == AiSessions.Admission.IN_FLIGHT
                     ? "mcaconversations.ai.busy" : "mcaconversations.ai.wait", villagerName)
                     .withStyle(ChatFormatting.GRAY), true);
@@ -162,7 +132,10 @@ public final class AiConversations {
         }
 
         try {
-            AiPolicy policy = new AiPolicy(McaConversationsConfig.aiRelationshipEffects(),
+            // An opening line is the villager's own initiative: it is heard, not judged. Nothing the
+            // player has not yet said can move hearts, leave a state or make a promise.
+            AiPolicy policy = opener ? new AiPolicy(false, false, 1.0, 0)
+                    : new AiPolicy(McaConversationsConfig.aiRelationshipEffects(),
                     McaConversationsConfig.aiGameplayEffects(), McaConversationsConfig.aiMinConfidence(),
                     McaConversationsConfig.aiMemoriesPerPair());
             AiSessions.Session session = SESSIONS.session(villagerId, playerId);
@@ -204,7 +177,7 @@ public final class AiConversations {
             return transport.send(settings.endpoint(), settings.tokenFor(playerName), body, timeout)
                     .exceptionally(t -> AiHttpResult.failed("network_error"))
                     .thenApplyAsync(result -> complete(server, playerId, villagerId, villagerName, message, result,
-                            policy, offered, settings, turn), server)
+                            policy, offered, settings, turn, opener), server)
                     .exceptionally(t -> {
                         McaConversations.LOGGER.error("AI conversation turn failed; nothing was applied", t);
                         server.execute(() -> SESSIONS.finish(villagerId, playerId, now));
@@ -220,7 +193,7 @@ public final class AiConversations {
     /** Step 3, on the server thread. */
     private static Optional<String> complete(MinecraftServer server, UUID playerId, UUID villagerId, String villagerName,
                                              String message, AiHttpResult result, AiPolicy policy, Set<String> offered,
-                                             McaChatAi.Settings settings, AiSocial.Turn turn) {
+                                             McaChatAi.Settings settings, AiSocial.Turn turn, boolean opener) {
         ServerPlayer player = server.getPlayerList().getPlayer(playerId);
         Entity villager = player == null ? null : player.serverLevel().getEntity(villagerId);
         long now = villager != null ? villager.level().getGameTime() : server.overworld().getGameTime();
@@ -253,7 +226,11 @@ public final class AiConversations {
                     turn, now, day);
             // How the line should sound, sent ahead of MCA delivering it.
             AiVoice.direct(player, villager, reply.dialogue(), reply.emotion(), reply.deliveryOrDefault(), turn.facts());
-            session.recordExchange(message, reply.dialogue());
+            if (opener) {
+                session.recordOpening(reply.dialogue());
+            } else {
+                session.recordExchange(message, reply.dialogue());
+            }
             if (McaConversationsConfig.debugAi()) {
                 McaConversations.LOGGER.info("[ai] reply villager={} player={} structured={} impact={} confidence={} "
                                 + "emotion={} memory={} effects={} command='{}' | planned hearts={} state={} dispositions={} "
@@ -324,6 +301,111 @@ public final class AiConversations {
     }
 
     // ---------------------------------------------------------------------------------------------
+    // This mod's own entry points: typed chat, the Talk button, villagers starting conversations
+    // ---------------------------------------------------------------------------------------------
+
+    /** Who each player is talking with, and when they last exchanged a line. Server-thread confined. */
+    private record Partner(UUID villager, long lastTick) {
+    }
+
+    private static final Map<UUID, Partner> PARTNERS = new HashMap<>();
+
+    /** True when only AI conversations exist: MCA's dialogue tree and this mod's scripted chat are off. */
+    public static boolean aiOnly() {
+        return enabled() && McaConversationsConfig.aiOnly();
+    }
+
+    /** True when villagers start AI conversations on their own. */
+    public static boolean autoConversations() {
+        return enabled() && McaConversationsConfig.aiAutoConversations();
+    }
+
+    /** True when scripted villager speech that starts on its own (greetings, initiatives) is replaced by AI. */
+    public static boolean replacesScriptedSpeech() {
+        return autoConversations() || aiOnly();
+    }
+
+    /** The villager this player is in an AI conversation with, if it is still live. */
+    static Optional<UUID> partner(UUID player, long now) {
+        Partner partner = PARTNERS.get(player);
+        if (partner == null || now - partner.lastTick > McaConversationsConfig.aiConversationIdleTicks()) {
+            return Optional.empty();
+        }
+        return Optional.of(partner.villager);
+    }
+
+    static void setPartner(UUID player, UUID villager, long now) {
+        PARTNERS.put(player, new Partner(villager, now));
+    }
+
+    /** The player said something to this villager in chat. The villager answers through MCA's own voice. */
+    public static void converse(ServerPlayer player, Entity villager, String message) {
+        long now = villager.level().getGameTime();
+        setPartner(player.getUUID(), villager.getUUID(), now);
+        run(player, villager, message, null);
+    }
+
+    /** The villager starts a conversation with the player, for {@code reason} (a short English note for the model). */
+    public static void open(ServerPlayer player, Entity villager, String reason) {
+        setPartner(player.getUUID(), villager.getUUID(), villager.level().getGameTime());
+        run(player, villager, "", reason);
+    }
+
+    private static void run(ServerPlayer player, Entity villager, String message, String reason) {
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return;
+        }
+        UUID playerId = player.getUUID();
+        UUID villagerId = villager.getUUID();
+        CompletableFuture<Optional<String>> turn;
+        try {
+            turn = begin(player, villager, message, reason);
+        } catch (Throwable t) {
+            McaConversations.LOGGER.error("AI conversation turn failed to start", t);
+            return;
+        }
+        turn.thenAccept(line -> line.ifPresent(text -> server.execute(() -> deliver(server, playerId, villagerId, text))));
+    }
+
+    /** Hands the line to the villager's MCA message queue: they walk over and say it, MCA-style and voiced. */
+    private static void deliver(MinecraftServer server, UUID playerId, UUID villagerId, String line) {
+        ServerPlayer player = server.getPlayerList().getPlayer(playerId);
+        Entity villager = player == null ? null : player.serverLevel().getEntity(villagerId);
+        if (player == null || villager == null || !villager.isAlive()) {
+            return;
+        }
+        if (!dev.otectus.mcaconversations.compat.mca.McaHandles.queueMessage(villager, player, Component.literal(line))) {
+            String name = McaCompat.getVillagerName(villager).orElse(villager.getName().getString());
+            player.sendSystemMessage(Component.literal("<" + name + "> " + line));
+        }
+        setPartner(playerId, villagerId, villager.level().getGameTime());
+    }
+
+    /** What the model is told when the villager speaks first. Never shown to anyone. */
+    static String openerInstruction(String playerName, String reason) {
+        return "[" + playerName + " has not said anything. You notice them and start the conversation yourself, "
+                + "because: " + reason + ". Say one or two short, natural opening lines to " + playerName
+                + ", in character, as you would on walking up to them. Do not describe actions.]";
+    }
+
+    /**
+     * MCA's Talk button in AI-only mode: instead of MCA's scripted dialogue tree, the villager greets the
+     * player through the AI and the conversation carries on in chat.
+     */
+    public static void onTalkButton(ServerPlayer player, UUID villagerId) {
+        Entity villager = player.serverLevel().getEntity(villagerId);
+        if (villager == null || !McaCompat.isMcaVillager(villager)) {
+            return;
+        }
+        McaCompat.stopInteractingIfOwned(villager, player.getUUID());
+        String name = McaCompat.getVillagerName(villager).orElse(villager.getName().getString());
+        player.displayClientMessage(Component.translatable("mcaconversations.ai.talk_hint", name)
+                .withStyle(ChatFormatting.GRAY), true);
+        open(player, villager, player.getName().getString() + " just came up to you to talk");
+    }
+
+        // ---------------------------------------------------------------------------------------------
     // Lifecycle, from ConversationsEvents
     // ---------------------------------------------------------------------------------------------
 
@@ -396,13 +478,17 @@ public final class AiConversations {
         }
     }
 
-    /** Every server tick: delayed effects. */
+    /** Every server tick: delayed effects, and villagers deciding to start a conversation. */
     public static void tick(MinecraftServer server) {
         AiTasks.drain(server.overworld().getGameTime());
+        if (autoConversations()) {
+            AiInitiative.tick(server);
+        }
     }
 
     public static void onPlayerLogout(UUID player) {
         SESSIONS.removePlayer(player);
+        PARTNERS.remove(player);
         LAST_FAILURE_NOTICE.remove(player);
     }
 
@@ -416,5 +502,7 @@ public final class AiConversations {
         SESSIONS.clear();
         LAST_FAILURE_NOTICE.clear();
         AiTasks.clear();
+        PARTNERS.clear();
+        AiInitiative.reset();
     }
 }

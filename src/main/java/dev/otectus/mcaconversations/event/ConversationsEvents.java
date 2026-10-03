@@ -124,6 +124,9 @@ public final class ConversationsEvents {
      */
     @SubscribeEvent(priority = EventPriority.HIGH)
     public static void onLocalChat(ServerChatEvent event) {
+        if (dev.otectus.mcaconversations.ai.AiConversations.enabled()) {
+            return; // AI conversations route chat themselves; local-chat rewriting would hide it from them
+        }
         if (!McaBridge.isAvailable() || !McaConversationsConfig.COMMON.enableChatMode.get()) {
             return;
         }
@@ -145,6 +148,11 @@ public final class ConversationsEvents {
     public static void onServerChat(ServerChatEvent event) {
         if (event.isCanceled()) {
             return; // claimed by the local-chat owner, which already ran the pipeline
+        }
+        if (dev.otectus.mcaconversations.ai.AiConversations.enabled()) {
+            // AI conversations replace scripted typed chat: a line to a villager gets one, AI, answer.
+            dev.otectus.mcaconversations.ai.AiChatRouter.onChat(event);
+            return;
         }
         if (!McaBridge.isAvailable() || !McaConversationsConfig.COMMON.enableChatMode.get()) {
             return;
@@ -389,6 +397,7 @@ public final class ConversationsEvents {
         // not thereby decided that a due promise should go unmentioned.
         if (event.getServer().getTickCount() % GREET_SCAN_INTERVAL_TICKS == 0
                 && McaConversationsConfig.COMMON.enableChatMode.get()
+                && !dev.otectus.mcaconversations.ai.AiConversations.replacesScriptedSpeech()
                 && (McaConversationsConfig.COMMON.chatModeGreetOnApproach.get()
                         || McaConversationsConfig.maxInitiativesPerVillagerPlayerDay() > 0)) {
             GreetOnApproach.scan(event.getServer());

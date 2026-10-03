@@ -280,6 +280,34 @@ public final class McaConversationsConfig {
         }
     }
 
+    public static boolean aiOnly() {
+        try {
+            return COMMON.aiOnly.get();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static boolean aiAutoConversations() {
+        try {
+            return COMMON.aiAutoConversations.get();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static int aiAutoConversationCooldownTicks() {
+        return serverInt(SERVER.aiAutoConversationCooldownTicks, 6000);
+    }
+
+    public static double aiAutoConversationChance() {
+        return serverDouble(SERVER.aiAutoConversationChance, 0.1);
+    }
+
+    public static int aiAutoConversationRadius() {
+        return serverInt(SERVER.aiAutoConversationRadius, 10);
+    }
+
     public static boolean aiRelationshipEffects() {
         return serverBool(SERVER.aiRelationshipEffects, true);
     }
@@ -582,6 +610,8 @@ public final class McaConversationsConfig {
 
         public final ModConfigSpec.BooleanValue aiEnabled;
         public final ModConfigSpec.BooleanValue debugAi;
+        public final ModConfigSpec.BooleanValue aiOnly;
+        public final ModConfigSpec.BooleanValue aiAutoConversations;
 
         public final ModConfigSpec.BooleanValue debugLogging;
 
@@ -1003,6 +1033,17 @@ public final class McaConversationsConfig {
                     "Log each AI turn: prompt size, the parsed reply, what was planned and what was applied.",
                     "The access token is never logged. Verbose; for tuning.")
                     .define("debugAi", false);
+            aiOnly = b.comment(
+                    "Only AI conversations. MCA's Talk button no longer opens MCA's scripted dialogue tree (chat,",
+                    "jokes, stories, flirting...): the villager greets the player through the AI and the conversation",
+                    "continues in chat. This mod's scripted chat mode is off as well. Gifts, trading, follow/stay and",
+                    "the other non-dialogue buttons are unchanged.")
+                    .define("aiOnly", false);
+            aiAutoConversations = b.comment(
+                    "Villagers start AI conversations on their own: one comes over and opens with what is on their mind",
+                    "about the player (a promise due, a kept promise, a loss, village talk, a long absence, love) or",
+                    "small talk. Replaces this mod's scripted greetings and initiatives, which are off while this is on.")
+                    .define("autoConversations", true);
             b.pop();
 
             b.push("debug");
@@ -1085,6 +1126,9 @@ public final class McaConversationsConfig {
         public final ModConfigSpec.IntValue aiConversationIdleTicks;
         public final ModConfigSpec.IntValue aiRequestTimeoutSeconds;
         public final ModConfigSpec.BooleanValue aiRequestJsonMode;
+        public final ModConfigSpec.IntValue aiAutoConversationCooldownTicks;
+        public final ModConfigSpec.DoubleValue aiAutoConversationChance;
+        public final ModConfigSpec.IntValue aiAutoConversationRadius;
 
         Server(ModConfigSpec.Builder b) {
             b.comment("Values the server decides for everyone connected to it. Stored per world under",
@@ -1348,6 +1392,15 @@ public final class McaConversationsConfig {
                     "Ask the endpoint for response_format json_object. More reliable structured replies on",
                     "OpenAI and most compatible servers; turn it off for an endpoint that rejects the field.")
                     .define("requestJsonMode", false);
+            aiAutoConversationCooldownTicks = b.comment(
+                    "Least time between two villager-started conversations with one player, in ticks (6000 = 5 min).")
+                    .defineInRange("autoConversationCooldownTicks", 6000, 600, 72000);
+            aiAutoConversationChance = b.comment(
+                    "Chance per check (every 10 s, once the cooldown has passed) that a villager with only small talk",
+                    "comes over; a more pressing reason multiplies it (a promise due is five times as likely).")
+                    .defineInRange("autoConversationChance", 0.1, 0.0, 1.0);
+            aiAutoConversationRadius = b.comment("How close a villager must be, in blocks, to come over and talk.")
+                    .defineInRange("autoConversationRadius", 10, 4, 24);
             b.pop();
         }
     }

@@ -8,6 +8,7 @@
     "BreedableRelationshipMixin",
     "DialoguesMixin",
     "InteractTaskMovementMixin",
+    "InteractionDialogueInitMixin",
     "InteractionDialogueMessageMixin",
     "McaInteractionCloseMixin",
     "NetworkHandlerMixin",

@@ -150,6 +150,49 @@ What makes it read as a person:
 - The villager carries their **own state**: grief, grudges, promises owed, a wish, views of neighbours, who is listening, and what the village says.
 - Extra lines (directions, thanks, interjections) are spoken through **MCA's own message queue**, after the reply, so they sound like the villager.
 
+## AI-only villagers and villager-started conversations
+
+**One path for typed chat.** With `ai.enabled`, this mod routes typed chat itself (`AiChatRouter`) and
+MCA's own chat-AI routing is silenced (`OpenAIChatAIMixin` returns nothing), so a line is answered
+once. MCA's `enableVillagerChatAI` no longer needs to be on, but the endpoint, model and token are
+still MCA's. A message goes to, in order:
+1. a villager named in it (full or first name, accents ignored);
+2. the villager you are already talking with (within 16 blocks, conversation still live);
+3. the villager you are looking straight at, within 6 blocks.
+
+Otherwise it is just chat. Replies go through the villager's MCA message queue, so they look and
+sound like MCA's chat AI.
+
+**`ai.aiOnly`** (common, default false):
+- MCA's **Talk** button no longer opens MCA's scripted dialogue tree
+  (`InteractionDialogueInitMixin` on `InteractionDialogueInitMessage.handleServer`). The interaction
+  screen closes, the villager greets you through the AI, and you reply in chat.
+- This mod's scripted typed chat (chat mode) is off.
+- Gifts, trading, follow/stay, work and the family tree are unchanged.
+
+**`ai.autoConversations`** (common, default true): villagers start AI conversations themselves
+(`AiInitiative`, every 10 s).
+- The villager comes over (MCA's `DeliverMessageTask`) and opens with the strongest reason on its mind:
+
+  | Weight | Reason |
+  |---|---|
+  | 5 | a promise from you is due |
+  | 4 | a promise you just kept |
+  | 4 | a fresh loss (acquaintances and closer) |
+  | 3 | something the village says about you |
+  | 3 | you are their partner |
+  | 3 | three or more days without seeing a friend |
+  | 2 | a wish |
+  | 1 | small talk, or curiosity about a stranger |
+
+- Chance per check is `autoConversationChance` (0.1) × weight.
+- Limits: one opening per player per `autoConversationCooldownTicks` (5 min), the same villager at
+  most every 10 min, and never while you are talking to someone or in a menu.
+- No villager comes over while sleeping, panicking, busy with another player, holding a grudge, or
+  when the relationship is tense or hostile.
+- An opening line is heard, not judged: it never moves hearts or makes promises.
+- While this is on (or `aiOnly`), this mod's scripted greetings and initiatives are off.
+
 ## Voice (acting TTS)
 
 Villagers speak their lines aloud with acting: the emotion, what the line is for, their mood, grief,

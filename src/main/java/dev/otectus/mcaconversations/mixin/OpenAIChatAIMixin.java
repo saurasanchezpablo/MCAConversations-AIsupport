@@ -15,9 +15,10 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * The AI-conversation integration's one hook: MCA's OpenAI-compatible chat strategy hands its request
- * to {@link AiConversations} while {@code ai.enabled} is on, so the reply can carry structured
- * consequences. Everything around the request stays MCA's: which villager a chat line addresses, the
+ * Silences MCA's own villager chat AI while this mod's AI conversations are on: this mod routes typed
+ * chat to villagers itself ({@code AiChatRouter}) and answers through the villager's MCA message
+ * queue, so MCA answering the same line would make every villager reply twice. When {@code ai.enabled}
+ * is off, MCA's chat AI runs exactly as without this mod. Everything around the request stays MCA's: which villager a chat line addresses, the
  * per-villager strategy (an Inworld character never reaches this class), the endpoint configuration,
  * and the delivery of the line through the villager's {@code ConversationManager}.
  *
@@ -41,7 +42,8 @@ public abstract class OpenAIChatAIMixin {
                                          CallbackInfoReturnable<Optional<String>> cir) {
         try {
             if (AiConversations.enabled()) {
-                cir.setReturnValue(AiConversations.answerBlocking(player, villager, message));
+                // This mod's chat router answers the line itself (AiChatRouter); MCA must not answer it too.
+                cir.setReturnValue(Optional.empty());
             }
         } catch (Throwable t) {
             McaConversations.LOGGER.error("AI conversations failed to take the request; MCA's chat AI answers instead", t);
@@ -54,7 +56,7 @@ public abstract class OpenAIChatAIMixin {
                                                   CallbackInfoReturnable<CompletableFuture<Optional<String>>> cir) {
         try {
             if (AiConversations.enabled()) {
-                cir.setReturnValue(AiConversations.answerAsync(player, villager, message));
+                cir.setReturnValue(CompletableFuture.completedFuture(Optional.empty()));
             }
         } catch (Throwable t) {
             McaConversations.LOGGER.error("AI conversations failed to take the request; MCA's chat AI answers instead", t);

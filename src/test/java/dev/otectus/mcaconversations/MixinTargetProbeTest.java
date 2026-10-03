@@ -120,6 +120,8 @@ class MixinTargetProbeTest {
         INJECTION_POINTS.put("BreedableRelationshipMixin", List.of("acceptGift"));
         // MCA's client TTS entry point; the acting voice replaces MCA's speech for a line here.
         INJECTION_POINTS.put("SpeechManagerMixin", List.of("onChatMessage"));
+        // MCA's Talk button; AI-only mode replaces the dialogue tree it opens.
+        INJECTION_POINTS.put("InteractionDialogueInitMixin", List.of("handleServer"));
         INJECTION_POINTS.put("MCAClientMixin", List.of("useExpandedPersonalityTranslations"));
         // VillagerMessageMixin is deliberately absent on 1.21.1: VillagerMessage is a record of
         // Components and the JSON re-parse bug it worked around no longer exists (PORT_STATUS.md,

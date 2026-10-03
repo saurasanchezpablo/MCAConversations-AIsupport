@@ -82,7 +82,10 @@ class ConfigSpecTest {
             Map.entry("ai.turnCooldownTicks", 40),
             Map.entry("ai.conversationIdleTicks", 6000),
             Map.entry("ai.requestTimeoutSeconds", 25),
-            Map.entry("ai.requestJsonMode", false));
+            Map.entry("ai.requestJsonMode", false),
+            Map.entry("ai.autoConversationCooldownTicks", 6000),
+            Map.entry("ai.autoConversationChance", 0.1),
+            Map.entry("ai.autoConversationRadius", 10));
 
     @Test
     void allThreeSpecsBuild() {
@@ -121,7 +124,8 @@ class ConfigSpecTest {
                 "rpg.enableDispositions", "rpg.enableChecks", "rpg.debugRpg",
                 "chat.enableChatMode", "chat.chatModeGreetOnApproach",
                 "dynamic.enabled", "dynamic.debugDirector", "history.enabled",
-                "group.enabled", "debug.debugLogging", "ai.enabled", "ai.debugAi")) {
+                "group.enabled", "debug.debugLogging", "ai.enabled", "ai.debugAi", "ai.aiOnly",
+                "ai.autoConversations")) {
             assertTrue(common.contains(path), path + " must stay in the common spec");
         }
     }
@@ -182,6 +186,10 @@ class ConfigSpecTest {
         assertEquals(6000, McaConversationsConfig.aiConversationIdleTicks());
         assertEquals(25, McaConversationsConfig.aiRequestTimeoutSeconds());
         assertFalse(McaConversationsConfig.aiRequestJsonMode());
+        assertEquals(6000, McaConversationsConfig.aiAutoConversationCooldownTicks());
+        assertEquals(0.1, McaConversationsConfig.aiAutoConversationChance());
+        assertEquals(10, McaConversationsConfig.aiAutoConversationRadius());
+        assertFalse(McaConversationsConfig.aiOnly(), "MCA's scripted dialogue stays unless a server opts out");
         // The integration is opt-in: with no config loaded it is off, so MCA's chat AI is untouched.
         assertFalse(McaConversationsConfig.aiEnabled());
     }

@@ -76,6 +76,14 @@ public final class AiSessions {
             }
         }
 
+        /** The villager spoke first: their line opens the transcript with nothing before it. */
+        public void recordOpening(String villagerLine) {
+            transcript.addLast(new Line(false, villagerLine));
+            while (transcript.size() > MAX_TRANSCRIPT_LINES) {
+                transcript.removeFirst();
+            }
+        }
+
         /** A per-pair turn counter, unique within this conversation; part of the heart transaction id. */
         public long nextSerial() {
             return ++serial;
