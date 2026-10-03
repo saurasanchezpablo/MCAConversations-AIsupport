@@ -243,9 +243,16 @@ public final class VillagerVoices {
         clipsPlayed++;
     }
 
+    /** True while a model lookup after a 404 is running, so a burst of failures triggers one lookup. */
+    private boolean recoveringModel;
+
     private void failed(Settings settings, Throwable error) {
         Throwable cause = error.getCause() != null ? error.getCause() : error;
         lastError = cause.toString();
+        if (cause instanceof Http.Failure failure && failure.status == 404 && settings.provider() == VoiceProvider.GEMINI
+                && !recoveringModel) {
+            recoverGeminiModel(settings);
+        }
         McaConversations.LOGGER.warn("[voice] {} could not voice a line: {}", settings.provider(), cause.toString());
         long now = System.currentTimeMillis();
         if (cause instanceof Http.Failure failure && (failure.status == 401 || failure.status == 403)
@@ -255,6 +262,32 @@ public final class VillagerVoices {
                     Component.translatable("mcaconversations.voice.key_rejected", settings.provider().name())
                             .withStyle(ChatFormatting.GRAY), false);
         }
+    }
+
+    /**
+     * Gemini said the configured model does not exist (Google renames its preview TTS models). Asks
+     * which TTS models this key can use, switches to the best one, saves it and tells the player.
+     */
+    private void recoverGeminiModel(Settings settings) {
+        recoveringModel = true;
+        ModelCatalog.gemini(settings.geminiKey()).whenComplete((models, error) -> Minecraft.getInstance().execute(() -> {
+            recoveringModel = false;
+            Minecraft mc = Minecraft.getInstance();
+            if (error != null || models == null || models.isEmpty()) {
+                McaConversations.LOGGER.warn("[voice] Gemini model '{}' not found and no TTS model is listed for this key",
+                        settings.geminiModel());
+                return;
+            }
+            String chosen = models.get(0);
+            McaConversationsConfig.CLIENT.voiceGeminiModel.set(chosen);
+            McaConversationsConfig.CLIENT.voiceGeminiModel.save();
+            McaConversations.LOGGER.info("[voice] Gemini model '{}' not found; switched to '{}'", settings.geminiModel(), chosen);
+            if (mc.player != null) {
+                mc.player.displayClientMessage(Component.literal("Voice: Gemini model '" + settings.geminiModel()
+                        + "' does not exist; switched to '" + chosen + "'. Try again with /mcavoice test.")
+                        .withStyle(ChatFormatting.YELLOW), false);
+            }
+        }));
     }
 
     /** A line no direction was sent for (a scripted line): spoken plainly, coloured by the villager's mood. */

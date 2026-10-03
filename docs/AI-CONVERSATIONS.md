@@ -247,6 +247,7 @@ and keys typed there are saved to `mcaconversations-client.toml`, never sent to 
 | `/mcavoice provider mca\|openai\|gemini` | Choose the engine |
 | `/mcavoice key openai\|gemini <key>` | Store an API key |
 | `/mcavoice model openai\|gemini <model>` | Choose the model |
+| `/mcavoice models` | List the speech models this key can use (click one to select it). A Gemini 404 also switches to the first listed TTS model automatically |
 | `/mcavoice endpoint <url>` | OpenAI-compatible speech endpoint |
 | `/mcavoice scripted on\|off` | Also voice scripted lines, or only AI conversations |
 | `/mcavoice debug on\|off` | Log each voiced line |

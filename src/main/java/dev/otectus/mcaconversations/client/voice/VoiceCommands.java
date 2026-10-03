@@ -58,6 +58,7 @@ public final class VoiceCommands {
                         .executes(ctx -> test(null))
                         .then(Commands.argument("text", StringArgumentType.greedyString())
                                 .executes(ctx -> test(StringArgumentType.getString(ctx, "text")))))
+                .then(Commands.literal("models").executes(ctx -> models()))
                 .then(Commands.literal("provider")
                         .then(Commands.literal("mca").executes(ctx -> provider(VoiceProvider.MCA)))
                         .then(Commands.literal("openai").executes(ctx -> provider(VoiceProvider.OPENAI)))
@@ -133,6 +134,52 @@ public final class VoiceCommands {
         say(Component.literal("Testing voice from " + (speaker == mc.player ? "you (no villager nearby)"
                 : McaCompat.getVillagerName(speaker).orElse("a villager")) + ".").withStyle(ChatFormatting.GRAY));
         VillagerVoices.INSTANCE.test(speaker, line, language, VoiceCommands::say);
+        return 1;
+    }
+
+    /** Lists the speech models the configured key can use, for the current engine. */
+    private static int models() {
+        VillagerVoices.Settings s;
+        try {
+            s = VillagerVoices.Settings.read();
+        } catch (Throwable t) {
+            return 0;
+        }
+        if (!s.active()) {
+            say(Component.literal("Set an engine and key first: /mcavoice provider gemini|openai, /mcavoice key ...")
+                    .withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        boolean gemini = s.provider() == VoiceProvider.GEMINI;
+        say(Component.literal("Asking " + s.provider() + " which speech models this key can use...").withStyle(ChatFormatting.GRAY));
+        (gemini ? ModelCatalog.gemini(s.geminiKey()) : ModelCatalog.openAi(s.openAiEndpoint(), s.openAiKey()))
+                .whenComplete((models, error) -> Minecraft.getInstance().execute(() -> {
+                    if (error != null) {
+                        Throwable cause = error.getCause() != null ? error.getCause() : error;
+                        say(Component.literal("Failed: " + cause).withStyle(ChatFormatting.RED));
+                        return;
+                    }
+                    if (models.isEmpty()) {
+                        say(Component.literal("No speech (TTS) models are listed for this key.").withStyle(ChatFormatting.RED));
+                        return;
+                    }
+                    String current = gemini ? s.geminiModel() : s.openAiModel();
+                    String command = "/mcavoice model " + (gemini ? "gemini " : "openai ");
+                    for (String model : models) {
+                        boolean active = model.equals(current);
+                        say(Component.literal((active ? " > " : "   ") + model + (active ? "  (current)" : ""))
+                                .withStyle(style -> style.withColor(active ? ChatFormatting.GREEN : ChatFormatting.WHITE)
+                                        .withClickEvent(new net.minecraft.network.chat.ClickEvent(
+                                                net.minecraft.network.chat.ClickEvent.Action.SUGGEST_COMMAND, command + model))
+                                        .withHoverEvent(new net.minecraft.network.chat.HoverEvent(
+                                                net.minecraft.network.chat.HoverEvent.Action.SHOW_TEXT,
+                                                Component.literal("Click to use this model")))));
+                    }
+                    if (!models.contains(current)) {
+                        say(Component.literal("The configured model '" + current + "' is not in this list. Click one above.")
+                                .withStyle(ChatFormatting.YELLOW));
+                    }
+                }));
         return 1;
     }
 

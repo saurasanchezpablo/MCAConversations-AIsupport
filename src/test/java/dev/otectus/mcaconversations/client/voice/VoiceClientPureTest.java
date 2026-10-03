@@ -77,4 +77,18 @@ class VoiceClientPureTest {
         assertEquals("****", VoiceCommands.mask("abc"));
         assertEquals("sk-p...wxyz", VoiceCommands.mask("sk-proj-1234567890wxyz"));
     }
+
+    @Test
+    void onlyTtsModelsThatCanGenerateAreListedFlashFirst() {
+        java.util.List<String> gemini = ModelCatalog.parseGemini("""
+                {"models": [
+                  {"name": "models/gemini-2.5-pro-preview-tts", "supportedGenerationMethods": ["generateContent"]},
+                  {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]},
+                  {"name": "models/gemini-2.5-flash-preview-tts", "supportedGenerationMethods": ["countTokens", "generateContent"]},
+                  {"name": "models/some-tts-embedding", "supportedGenerationMethods": ["embedContent"]}
+                ]}""");
+        assertEquals(java.util.List.of("gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts"), gemini);
+        assertEquals(java.util.List.of("gpt-4o-mini-tts", "tts-1"), ModelCatalog.parseOpenAi(
+                "{\"data\": [{\"id\": \"gpt-4o\"}, {\"id\": \"tts-1\"}, {\"id\": \"gpt-4o-mini-tts\"}]}"));
+    }
 }
