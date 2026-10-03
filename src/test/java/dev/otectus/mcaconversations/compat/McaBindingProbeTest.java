@@ -89,6 +89,12 @@ class McaBindingProbeTest {
                                 + "them (update the manifest in McaBinding) or removed them (declare the "
                                 + "member with optionalVirtual and give McaHandles a fallback).");
                 assertEquals(McaBinding.Status.BOUND, resolution.status(), jar.getFileName().toString());
+                // Optional only so an absence degrades instead of failing startup; every fleet build has
+                // them, and AI conversations would silently lose MCA's command list without them.
+                assertTrue(resolution.has(McaBinding.TRIGGER_COMMANDS),
+                        jar.getFileName() + ": TriggerCommandInfos.triggerCommands did not bind as a static field");
+                assertTrue(resolution.has(McaBinding.MCA_LANGUAGE),
+                        jar.getFileName() + ": MCA.language did not bind as a static field");
 
                 System.out.println("[probe] " + jar.getFileName() + " -> " + resolution.root()
                         + (resolution.unresolvedOptional().isEmpty() ? ""

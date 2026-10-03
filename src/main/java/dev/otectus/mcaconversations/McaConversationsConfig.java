@@ -264,6 +264,54 @@ public final class McaConversationsConfig {
         return serverInt(SERVER.dynamicTopicSlots, 3);
     }
 
+    // --- AI conversations ---------------------------------------------------------------------------
+
+    /** ai.enabled (common), never throwing: false while the spec is unavailable. */
+    public static boolean aiEnabled() {
+        return dynamicFeature(FeatureId.AI, false);
+    }
+
+    /** ai.debugAi (common), never throwing. */
+    public static boolean debugAi() {
+        try {
+            return COMMON.debugAi.get();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static boolean aiRelationshipEffects() {
+        return serverBool(SERVER.aiRelationshipEffects, true);
+    }
+
+    public static boolean aiGameplayEffects() {
+        return serverBool(SERVER.aiGameplayEffects, true);
+    }
+
+    public static double aiMinConfidence() {
+        return serverDouble(SERVER.aiMinConfidence, 0.6);
+    }
+
+    public static int aiMemoriesPerPair() {
+        return serverInt(SERVER.aiMemoriesPerPair, 12);
+    }
+
+    public static int aiTurnCooldownTicks() {
+        return serverInt(SERVER.aiTurnCooldownTicks, 40);
+    }
+
+    public static int aiConversationIdleTicks() {
+        return serverInt(SERVER.aiConversationIdleTicks, 6000);
+    }
+
+    public static int aiRequestTimeoutSeconds() {
+        return serverInt(SERVER.aiRequestTimeoutSeconds, 25);
+    }
+
+    public static boolean aiRequestJsonMode() {
+        return serverBool(SERVER.aiRequestJsonMode, false);
+    }
+
     /** hideExhaustedTopics, or true while the server spec is unavailable. */
     public static boolean hideExhaustedTopics() {
         return serverBool(SERVER.hideExhaustedTopics, true);
@@ -531,6 +579,9 @@ public final class McaConversationsConfig {
 
         public final ModConfigSpec.BooleanValue groupEnabled;
         public final ModConfigSpec.IntValue groupMaxSpeakers;
+
+        public final ModConfigSpec.BooleanValue aiEnabled;
+        public final ModConfigSpec.BooleanValue debugAi;
 
         public final ModConfigSpec.BooleanValue debugLogging;
 
@@ -937,6 +988,23 @@ public final class McaConversationsConfig {
                     .defineInRange("maxSpeakers", 3, 2, 3);
             b.pop();
 
+            b.push("ai");
+            b.comment("AI conversations: MCA's villager chat AI with consequences (docs/AI-CONVERSATIONS.md).");
+            aiEnabled = b.comment(
+                    "Take over MCA's villager chat AI (OpenAI-compatible endpoints; Inworld characters are left to",
+                    "MCA) so a reply also carries a structured judgement of the exchange. That judgement can move",
+                    "hearts through this mod's conversation budgets, leave a lingering mood, nudge the villager's",
+                    "dispositions and store a short memory of the player. MCA's chat AI must itself be enabled and",
+                    "configured (/mca chatAI): endpoint, model and token are MCA's. Off by default, because it",
+                    "makes a paid or rate-limited service part of the relationship game. When false, MCA's chat AI",
+                    "behaves exactly as without this mod.")
+                    .define("enabled", false);
+            debugAi = b.comment(
+                    "Log each AI turn: prompt size, the parsed reply, what was planned and what was applied.",
+                    "The access token is never logged. Verbose; for tuning.")
+                    .define("debugAi", false);
+            b.pop();
+
             b.push("debug");
             debugLogging = b.comment("Verbose logging for gossip detection and dialogue condition evaluation.")
                     .define("debugLogging", false);
@@ -1008,6 +1076,15 @@ public final class McaConversationsConfig {
         public final ModConfigSpec.IntValue topicRecencyCapPerPair;
 
         public final ModConfigSpec.BooleanValue hideExhaustedTopics;
+
+        public final ModConfigSpec.BooleanValue aiRelationshipEffects;
+        public final ModConfigSpec.BooleanValue aiGameplayEffects;
+        public final ModConfigSpec.DoubleValue aiMinConfidence;
+        public final ModConfigSpec.IntValue aiMemoriesPerPair;
+        public final ModConfigSpec.IntValue aiTurnCooldownTicks;
+        public final ModConfigSpec.IntValue aiConversationIdleTicks;
+        public final ModConfigSpec.IntValue aiRequestTimeoutSeconds;
+        public final ModConfigSpec.BooleanValue aiRequestJsonMode;
 
         Server(ModConfigSpec.Builder b) {
             b.comment("Values the server decides for everyone connected to it. Stored per world under",
@@ -1231,6 +1308,46 @@ public final class McaConversationsConfig {
                     "How many recent scenes, subjects and rhetorical shapes are remembered per pair for",
                     "repetition suppression.")
                     .defineInRange("topicRecencyCapPerPair", 32, 4, 128);
+            b.pop();
+
+            b.push("ai");
+            b.comment("What an AI conversation may change. Only read while ai.enabled is on in the common config.");
+            aiRelationshipEffects = b.comment(
+                    "Let an AI exchange move hearts. The model only judges the exchange (strongly negative to",
+                    "strongly positive); the game turns that into -4..+3 hearts and books it against the same",
+                    "per-conversation and per-day budgets (conversation.*) and diminishing returns as authored",
+                    "dialogue, so AI chat and the topic menus share one daily allowance.")
+                    .define("relationshipEffects", true);
+            aiGameplayEffects = b.comment(
+                    "Let an AI exchange leave a lingering mood (grateful, proud, annoyed) that authored dialogue",
+                    "reacts to, nudge the villager's trust, respect, warmth or tension, and run MCA's own chat-AI",
+                    "commands (only when MCA's villagerChatAIUseTools is on).")
+                    .define("gameplayEffects", true);
+            aiMinConfidence = b.comment(
+                    "The least confidence (0..1) the model must report in its judgement before the judgement has",
+                    "any effect. Ambiguous or sarcastic exchanges below this are talk only.")
+                    .defineInRange("minConfidence", 0.6, 0.0, 1.0);
+            aiMemoriesPerPair = b.comment(
+                    "Most memories one villager keeps of one player from AI conversations; 0 disables AI memory.",
+                    "Low-importance memories fade after 7 days and medium after 30; the least important and",
+                    "oldest go first when the limit is reached. Raw chat is never stored.")
+                    .defineInRange("memoriesPerPair", 12, 0, 32);
+            aiTurnCooldownTicks = b.comment(
+                    "Least time between two AI messages from one player, in ticks. A message sent sooner is not",
+                    "sent to the endpoint at all.")
+                    .defineInRange("turnCooldownTicks", 40, 0, 1200);
+            aiConversationIdleTicks = b.comment(
+                    "Silence, in ticks, after which an AI conversation with a villager is over: the next message",
+                    "starts with an empty transcript and a fresh per-conversation heart budget.")
+                    .defineInRange("conversationIdleTicks", 6000, 600, 72000);
+            aiRequestTimeoutSeconds = b.comment(
+                    "How long to wait for the endpoint before the villager gives up on answering. Nothing is",
+                    "applied for a turn that times out.")
+                    .defineInRange("requestTimeoutSeconds", 25, 5, 120);
+            aiRequestJsonMode = b.comment(
+                    "Ask the endpoint for response_format json_object. More reliable structured replies on",
+                    "OpenAI and most compatible servers; turn it off for an endpoint that rejects the field.")
+                    .define("requestJsonMode", false);
             b.pop();
         }
     }

@@ -84,7 +84,7 @@ public final class McaBinding {
     // Member descriptors
     // ---------------------------------------------------------------------------------------------
 
-    private enum Kind { CLASS, VIRTUAL, STATIC, GETTER, CONSTRUCTOR }
+    private enum Kind { CLASS, VIRTUAL, STATIC, GETTER, STATIC_GETTER, CONSTRUCTOR }
 
     /**
      * One thing this mod needs from MCA, named relative to the package root. Identity-compared, so
@@ -119,7 +119,7 @@ public final class McaBinding {
         public String toString() {
             return switch (kind) {
                 case CLASS -> ownerRelative;
-                case GETTER -> ownerRelative + "." + name;
+                case GETTER, STATIC_GETTER -> ownerRelative + "." + name;
                 default -> ownerRelative + "#" + name + "/" + arity;
             };
         }
@@ -133,7 +133,7 @@ public final class McaBinding {
             int params = switch (kind) {
                 case VIRTUAL, GETTER -> arity + 1; // receiver first
                 case STATIC, CONSTRUCTOR -> arity;
-                case CLASS -> 0;
+                case CLASS, STATIC_GETTER -> 0;
             };
             return MethodType.methodType(returnType, Collections.nCopies(params, Object.class));
         }
@@ -167,6 +167,14 @@ public final class McaBinding {
     /** As {@link #getter}, but a miss is recorded and tolerated instead of failing the probe test. */
     private static Member optionalGetter(String ownerRelative, String field) {
         return new Member(Kind.GETTER, ownerRelative, field, Object.class, 0, null, false);
+    }
+
+    /**
+     * A {@code static} field, read with no receiver. Always optional: the only static fields this mod
+     * reads (MCA's chat-AI command table and language hint) are conveniences a missing one degrades.
+     */
+    private static Member optionalStaticGetter(String ownerRelative, String field) {
+        return new Member(Kind.STATIC_GETTER, ownerRelative, field, Object.class, 0, null, false);
     }
 
     /**
@@ -223,6 +231,11 @@ public final class McaBinding {
     private static final String C_BUILDING = "server.world.data.Building";
     private static final String C_TRAITS = "entity.ai.Traits";
     private static final String C_TRAIT = "entity.ai.Traits$Trait";
+    private static final String C_MCA = "MCA";
+    private static final String C_CHAT_AI_CONTEXT = "entity.ai.chatAI.ChatAIContext";
+    private static final String C_TRIGGER_INFOS = "entity.ai.chatAI.TriggerCommandInfos";
+    private static final String C_TRIGGER_INFO = "entity.ai.chatAI.TriggerCommandInfo";
+    private static final String C_AI_MODULES = "entity.ai.chatAI.modules.";
 
     // Classes ---------------------------------------------------------------------------------------
     public static final Member VILLAGER_CLASS = cls(C_VILLAGER);
@@ -437,6 +450,48 @@ public final class McaBinding {
     public static final Member VILLAGE_GET_BUILDINGS = virtual(C_VILLAGE, "getBuildings", Map.class, 0);
     public static final Member BUILDING_GET_ID = virtual(C_BUILDING, "getId", int.class, 0);
 
+    // MCA's villager chat AI (the AI-conversation integration, docs/AI-CONVERSATIONS.md) ----------------
+    //
+    // AI conversations do not replace MCA's ChatAI; they take over only its OpenAI-strategy request so
+    // the reply can carry structured outcomes. Everything else is MCA's own: which villager a chat line
+    // is for, the endpoint/model/token the server admin configured with /mca chatAI, the prompt modules
+    // that describe a villager, the user-edited context strings, the command allow-list and the
+    // delivery of the line. The config fields and the six modules exist with identical names on both
+    // builds in the 1.21.1 probe fleet (7.7.33, 7.7.36-beta.3) and are REQUIRED, so a rename fails
+    // McaBindingProbeTest. ChatAIContext is OPTIONAL only to keep this manifest identical to the Forge
+    // build's, where MCA 7.6 lacks it; both 1.21.1 builds have it.
+    public static final Member CONFIG_CHAT_AI_ENABLED = getter(C_CONFIG, "enableVillagerChatAI");
+    public static final Member CONFIG_CHAT_AI_ENDPOINT = getter(C_CONFIG, "villagerChatAIEndpoint");
+    public static final Member CONFIG_CHAT_AI_MODEL = getter(C_CONFIG, "villagerChatAIModel");
+    public static final Member CONFIG_CHAT_AI_TOKEN = getter(C_CONFIG, "villagerChatAIToken");
+    public static final Member CONFIG_CHAT_AI_SYSTEM_PROMPT = getter(C_CONFIG, "villagerChatAISystemPrompt");
+    public static final Member CONFIG_CHAT_AI_USE_TOOLS = getter(C_CONFIG, "villagerChatAIUseTools");
+    public static final Member CONFIG_CHAT_AI_SESSION_INFO =
+            getter(C_CONFIG, "villagerChatAIIncludeSessionInformation");
+    public static final Member CONFIG_CHAT_AI_LONG_TERM_MEMORY = getter(C_CONFIG, "villagerChatAIUseLongTermMemory");
+    public static final Member CONFIG_CHAT_AI_SHARED_MEMORY =
+            getter(C_CONFIG, "villagerChatAIUseSharedLongTermMemory");
+    /** {@code MCA.language}: the language MCA tells the model to fall back to. Null on a server. */
+    public static final Member MCA_LANGUAGE = optionalStaticGetter(C_MCA, "language");
+    public static final Member CHAT_AI_PERSONALITY_MODULE = statik(C_AI_MODULES + "PersonalityModule", "apply", void.class, 3);
+    public static final Member CHAT_AI_TRAITS_MODULE = statik(C_AI_MODULES + "TraitsModule", "apply", void.class, 3);
+    public static final Member CHAT_AI_RELATION_MODULE = statik(C_AI_MODULES + "RelationModule", "apply", void.class, 3);
+    public static final Member CHAT_AI_VILLAGE_MODULE = statik(C_AI_MODULES + "VillageModule", "apply", void.class, 3);
+    public static final Member CHAT_AI_ENVIRONMENT_MODULE =
+            statik(C_AI_MODULES + "EnvironmentModule", "apply", void.class, 3);
+    public static final Member CHAT_AI_PLAYER_MODULE = statik(C_AI_MODULES + "PlayerModule", "apply", void.class, 3);
+    /** {@code appendPrompts(StringBuilder, ServerPlayer, VillagerEntityMCA, Village)}; 7.7.0 and later. */
+    public static final Member CHAT_AI_APPEND_PROMPTS = new Member(Kind.STATIC, C_CHAT_AI_CONTEXT,
+            "appendPrompts", void.class, 4, null, false);
+    /** {@code Village.findNearest(Entity)}, the village MCA hands to {@code appendPrompts}. */
+    public static final Member VILLAGE_FIND_NEAREST = statik(C_VILLAGE, "findNearest", Object.class, 1);
+    public static final Member TRIGGER_COMMANDS = optionalStaticGetter(C_TRIGGER_INFOS, "triggerCommands");
+    public static final Member TRIGGER_FIND_COMMAND = statik(C_TRIGGER_INFOS, "findCommand", Object.class, 3);
+    public static final Member TRIGGER_COMMAND = getter(C_TRIGGER_INFO, "command");
+    public static final Member TRIGGER_DESCRIPTION = getter(C_TRIGGER_INFO, "description");
+    public static final Member TRIGGER_IS_ACTIVE = getter(C_TRIGGER_INFO, "isActive");
+    public static final Member TRIGGER_CALL = getter(C_TRIGGER_INFO, "call");
+
     /** Every member above, in declaration order. The single source of truth for what MCA must provide. */
     public static final List<Member> MANIFEST = List.of(
             VILLAGER_CLASS, VILLAGER_LIKE_CLASS, QUESTION_RESPONSE_CLASS, DIALOGUE_RESPONSE_CLASS,
@@ -468,7 +523,14 @@ public final class McaBinding {
             NODE_IS_DECEASED, NODE_PARTNER, NODE_FATHER, NODE_MOTHER, NODE_SIBLINGS, NODE_CHILDREN,
             NODE_PROFESSION_ID,
             VILLAGE_GET_POPULATION, VILLAGE_BUILDING_AT, BUILDING_GET_TYPE,
-            VILLAGE_GET_BUILDINGS, BUILDING_GET_ID);
+            VILLAGE_GET_BUILDINGS, BUILDING_GET_ID,
+            CONFIG_CHAT_AI_ENABLED, CONFIG_CHAT_AI_ENDPOINT, CONFIG_CHAT_AI_MODEL, CONFIG_CHAT_AI_TOKEN,
+            CONFIG_CHAT_AI_SYSTEM_PROMPT, CONFIG_CHAT_AI_USE_TOOLS, CONFIG_CHAT_AI_SESSION_INFO,
+            CONFIG_CHAT_AI_LONG_TERM_MEMORY, CONFIG_CHAT_AI_SHARED_MEMORY, MCA_LANGUAGE,
+            CHAT_AI_PERSONALITY_MODULE, CHAT_AI_TRAITS_MODULE, CHAT_AI_RELATION_MODULE, CHAT_AI_VILLAGE_MODULE,
+            CHAT_AI_ENVIRONMENT_MODULE, CHAT_AI_PLAYER_MODULE, CHAT_AI_APPEND_PROMPTS, VILLAGE_FIND_NEAREST,
+            TRIGGER_COMMANDS, TRIGGER_FIND_COMMAND, TRIGGER_COMMAND, TRIGGER_DESCRIPTION, TRIGGER_IS_ACTIVE,
+            TRIGGER_CALL);
 
     // ---------------------------------------------------------------------------------------------
     // Resolution
@@ -593,7 +655,7 @@ public final class McaBinding {
                 }
                 Object value = switch (member.kind) {
                     case CLASS -> owner;
-                    case GETTER -> bindGetter(lookup, owner, member);
+                    case GETTER, STATIC_GETTER -> bindGetter(lookup, owner, member);
                     case CONSTRUCTOR -> bindConstructor(lookup, owner, member);
                     default -> bindMethod(lookup, owner, member);
                 };
@@ -737,6 +799,9 @@ public final class McaBinding {
         try {
             Field field = findField(owner, member.name);
             if (field == null) {
+                return null;
+            }
+            if (Modifier.isStatic(field.getModifiers()) != (member.kind == Kind.STATIC_GETTER)) {
                 return null;
             }
             field.setAccessible(true);

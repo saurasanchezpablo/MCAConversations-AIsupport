@@ -63,7 +63,9 @@ public enum FeatureId {
     VILLAGE_CULTURE("village_culture", () -> McaConversationsConfig.COMMON.dynamicEnabled.get()
             && McaConversationsConfig.COMMON.villageCultureEnabled.get()),
     GROUP("group", () -> McaConversationsConfig.COMMON.dynamicEnabled.get()
-            && McaConversationsConfig.COMMON.groupEnabled.get());
+            && McaConversationsConfig.COMMON.groupEnabled.get()),
+    /** AI conversations: MCA's chat AI with structured, guarded consequences. */
+    AI("ai", () -> McaConversationsConfig.COMMON.aiEnabled.get());
 
     private static final Map<String, FeatureId> BY_NAME = index();
 

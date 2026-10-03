@@ -11,6 +11,7 @@
     "InteractionDialogueMessageMixin",
     "McaInteractionCloseMixin",
     "NetworkHandlerMixin",
+    "OpenAIChatAIMixin",
     "PlayerLegacyDataMixin",
     "QuestionMixin"
   ],
