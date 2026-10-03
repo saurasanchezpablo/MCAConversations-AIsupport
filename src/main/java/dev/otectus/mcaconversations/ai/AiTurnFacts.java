@@ -23,10 +23,13 @@ import java.util.Set;
  * @param bystanders       lower-case names of villagers near enough to chime in
  * @param openPromises     the player's outstanding promises to this villager
  * @param wishActive       the villager already has a wish open with this player
+ * @param offeredActions   action keys the villager would do for this player right now
+ * @param offeredChores    task keys the villager could be sent to do
  */
 public record AiTurnFacts(RelationshipBand band, int hearts, boolean romanceAllowed, boolean grieving, boolean grudge,
                           Set<String> offeredQuests, Set<String> offeredTopics, Set<String> offeredPlaces,
-                          Set<String> neighbours, Set<String> bystanders, int openPromises, boolean wishActive) {
+                          Set<String> neighbours, Set<String> bystanders, int openPromises, boolean wishActive,
+                          Set<String> offeredActions, Set<String> offeredChores) {
 
     /** MCA's bouquet threshold: below it, no courtship can start. */
     public static final int ROMANCE_MIN_HEARTS = 10;
@@ -40,6 +43,16 @@ public record AiTurnFacts(RelationshipBand band, int hearts, boolean romanceAllo
         offeredPlaces = offeredPlaces == null ? Set.of() : Set.copyOf(offeredPlaces);
         neighbours = lower(neighbours);
         bystanders = lower(bystanders);
+        offeredActions = offeredActions == null ? Set.of() : Set.copyOf(offeredActions);
+        offeredChores = offeredChores == null ? Set.of() : Set.copyOf(offeredChores);
+    }
+
+    /** Without spoken actions. */
+    public AiTurnFacts(RelationshipBand band, int hearts, boolean romanceAllowed, boolean grieving, boolean grudge,
+                       Set<String> offeredQuests, Set<String> offeredTopics, Set<String> offeredPlaces,
+                       Set<String> neighbours, Set<String> bystanders, int openPromises, boolean wishActive) {
+        this(band, hearts, romanceAllowed, grieving, grudge, offeredQuests, offeredTopics, offeredPlaces, neighbours,
+                bystanders, openPromises, wishActive, Set.of(), Set.of());
     }
 
     /** A turn about which nothing is known: nothing beyond hearts, states and dispositions is allowed. */

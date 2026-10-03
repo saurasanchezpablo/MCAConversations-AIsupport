@@ -36,6 +36,22 @@ public final class ConversationsNetwork {
 
     private static volatile ChoicePacketSink sink = ChoicePacketSink.NONE;
     private static volatile VoiceSink voiceSink = VoiceSink.NONE;
+    private static volatile Runnable openChatSink = () -> {
+    };
+
+    public static void installOpenChatSink(Runnable incoming) {
+        openChatSink = incoming == null ? () -> {
+        } : incoming;
+    }
+
+    /** Opens the player's chat box (a right-click on a villager in talk-on-click mode); never throws. */
+    public static void sendOpenChat(net.minecraft.server.level.ServerPlayer player) {
+        try {
+            net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player, OpenChatS2C.INSTANCE);
+        } catch (Throwable t) {
+            McaConversations.LOGGER.debug("open-chat send failed; ignoring", t);
+        }
+    }
 
     public static void installVoiceSink(VoiceSink incoming) {
         voiceSink = incoming == null ? VoiceSink.NONE : incoming;
@@ -96,6 +112,8 @@ public final class ConversationsNetwork {
         // Protocol 5: how a villager's line should sound, for the client's speech engine.
         registrar.playToClient(VoiceDirectionS2C.TYPE, VoiceDirectionS2C.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> voiceSink.accept(payload.direction())));
+        registrar.playToClient(OpenChatS2C.TYPE, OpenChatS2C.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> openChatSink.run()));
     }
 
     private static void handleOpened(ConversationOpenedS2C payload, IPayloadContext context) {

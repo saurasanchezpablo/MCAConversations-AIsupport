@@ -2,6 +2,8 @@ package dev.otectus.mcaconversations.ai;
 
 import dev.otectus.mcaconversations.disposition.DispositionAxis;
 
+import java.util.Optional;
+
 /**
  * One gameplay effect the model <em>requested</em>. A request only: every effect type is parsed by
  * {@link AiReplyParser} into a typed record with bounded parameters, {@link AiOutcomePlan} decides
@@ -14,7 +16,7 @@ import dev.otectus.mcaconversations.disposition.DispositionAxis;
  */
 public sealed interface AiEffect permits AiEffect.DispositionNudge, AiEffect.Promise, AiEffect.Wish,
         AiEffect.OfferQuest, AiEffect.UnlockTopic, AiEffect.Opinion, AiEffect.Directions, AiEffect.Discount,
-        AiEffect.Forgive, AiEffect.Grudge {
+        AiEffect.Forgive, AiEffect.Grudge, AiEffect.Action {
 
     /** The stable key the model uses for this effect type. */
     String type();
@@ -128,6 +130,29 @@ public sealed interface AiEffect permits AiEffect.DispositionNudge, AiEffect.Pro
     /** The villager accepts the player's apology and lets go of a grudge. */
     record Forgive() implements AiEffect {
         public static final String TYPE = "forgive";
+
+        @Override
+        public String type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * Something the player asked the villager to do, which the villager agrees to.
+     *
+     * @param chore  for {@link AiActionKind#WORK}
+     * @param amount for WORK, how much to gather before coming back (0 = until told to stop);
+     *               for GIVE, how many items
+     * @param item   for GIVE, which item (id), from the villager's own inventory
+     */
+    record Action(AiActionKind kind, Optional<AiChore> chore, int amount, String item) implements AiEffect {
+        public static final String TYPE = "action";
+
+        public Action {
+            chore = chore == null ? Optional.empty() : chore;
+            amount = Math.max(0, Math.min(64, amount));
+            item = item == null ? "" : item;
+        }
 
         @Override
         public String type() {

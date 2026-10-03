@@ -62,7 +62,7 @@ final class AiSocial {
 
     /** Everything one turn knows about the villager's social world. */
     record Turn(AiTurnFacts facts, List<AiContextSection> sections, Map<String, UUID> neighbourIds,
-                Map<String, UUID> bystanderIds, Map<String, Place> places) {
+                Map<String, UUID> bystanderIds, Map<String, Place> places, List<String> actionOffers) {
     }
 
     private AiSocial() {
@@ -191,16 +191,19 @@ final class AiSocial {
             }
         }
         Map<String, Place> places = places(level, villager, band, pair, day);
+        AiActionContext.Snapshot actions = AiActionContext.capture(villager, player, villagerName, playerName, band,
+                roles, grudge);
+        sections.addAll(actions.sections());
 
         AiTurnFacts facts = new AiTurnFacts(band, hearts, romanceAllowed, !losses.isEmpty(), grudge, quests, topics,
                 places.keySet(), neighbourIds.keySet(), bystanderIds.keySet(), (int) pair.openPromises(),
-                wish.isPresent());
-        return new Turn(facts, sections, neighbourIds, bystanderIds, places);
+                wish.isPresent(), actions.actions(), actions.chores());
+        return new Turn(facts, sections, neighbourIds, bystanderIds, places, actions.offers());
     }
 
     /** The menu of things the model may name in effects; the schema text lists exactly these. */
     static List<String> offers(Turn turn) {
-        List<String> out = new ArrayList<>();
+        List<String> out = new ArrayList<>(turn.actionOffers());
         if (!turn.facts().offeredQuests().isEmpty()) {
             out.add("{\"type\": \"offer_quest\", \"quest\": one of " + quoted(turn.facts().offeredQuests())
                     + "} when real work you need done fits the conversation");

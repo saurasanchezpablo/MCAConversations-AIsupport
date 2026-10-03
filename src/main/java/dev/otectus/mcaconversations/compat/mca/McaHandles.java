@@ -184,6 +184,8 @@ public final class McaHandles {
     private static final MethodHandle H_BUILDING_COMPLETE = R.handle(McaBinding.BUILDING_IS_COMPLETE);
     private static final MethodHandle H_STRUCTURES_IN_RUMORS = R.handle(McaBinding.CONFIG_STRUCTURES_IN_RUMORS);
     private static final MethodHandle H_GENETICS = R.handle(McaBinding.GET_GENETICS);
+    private static final MethodHandle H_COMMAND_HANDLE = R.handle(McaBinding.COMMAND_HANDLE);
+    private static final MethodHandle H_COMMAND_INTERACT_AT = R.handle(McaBinding.COMMAND_INTERACT_AT);
     private static final MethodHandle H_GENDER = R.handle(McaBinding.GENETICS_GET_GENDER);
     private static final MethodHandle H_TOO_YOUNG = R.handle(McaBinding.IS_TOO_YOUNG_TO_SPEAK);
     private static final MethodHandle H_SPEECH_IMPAIRED = R.handle(McaBinding.IS_SPEECH_IMPAIRED);
@@ -668,6 +670,50 @@ public final class McaHandles {
             // A reshaped building map degrades to "knows no buildings".
         }
         return out;
+    }
+
+    /**
+     * Runs one of MCA's own interaction commands for this player, exactly as MCA's interaction screen
+     * would (see {@code McaBinding.COMMAND_HANDLE}). Returns whether the command was recognised.
+     */
+    public static boolean runInteraction(Object villager, ServerPlayer player, String command) {
+        Object handler = isVillager(villager) ? ref(H_INTERACTIONS, villager) : null;
+        if (handler == null || player == null || command == null) {
+            return false;
+        }
+        try {
+            H_COMMAND_HANDLE.invoke(handler, player, command);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** Opens MCA's own interaction screen for this player, as a plain right-click on the villager would. */
+    public static boolean openInteractScreen(Object villager, Player player, net.minecraft.world.phys.Vec3 pos,
+                                             net.minecraft.world.InteractionHand hand) {
+        Object handler = isVillager(villager) ? ref(H_INTERACTIONS, villager) : null;
+        if (handler == null) {
+            return false;
+        }
+        try {
+            H_COMMAND_INTERACT_AT.invoke(handler, player, pos, hand);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** The villager's own inventory (MCA 7.7 {@code getInventory()}, or 7.6's field), or null. */
+    public static net.minecraft.world.Container inventory(Object villager) {
+        if (!isVillager(villager)) {
+            return null;
+        }
+        Object inventory = ref(H_VILLAGER_INVENTORY, villager);
+        if (inventory == null) {
+            inventory = ref(H_VILLAGER_INVENTORY_FIELD, villager);
+        }
+        return inventory instanceof net.minecraft.world.Container container ? container : null;
     }
 
     /** The villager's gender as MCA stores it, lower case ({@code male}, {@code female}, ...), or empty. Either side. */

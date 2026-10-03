@@ -193,6 +193,46 @@ sound like MCA's chat AI.
 - An opening line is heard, not judged: it never moves hearts or makes promises.
 - While this is on (or `aiOnly`), this mod's scripted greetings and initiatives are off.
 
+## Talk on click and actions by word
+
+**`ai.talkOnClick`** (common, default true, with `ai.enabled`). A right-click on a villager no longer
+opens MCA's menu (`VillagerInteractMixin` on `VillagerEntityMCA.interactAt`):
+- The villager turns to you and holds still while you talk (`VillagerAttention`).
+- Your chat box opens (`OpenChatS2C`).
+- Unless you were just talking, the villager speaks first.
+- Sneak + right-click opens MCA's own screen, so the family tree, profession and the rest stay reachable.
+
+**Actions by word.** The model may answer an `action` effect, which is taken only if
+`AiActionContext` offered it this turn:
+
+| `do` | Offered when | Runs |
+|---|---|---|
+| `trade` | the villager has a profession (not nitwit, not a child) | MCA `trade`, after the line |
+| `gift` | you hold something | MCA `gift`: MCA judges the held item as a gift, and promise/wish hooks apply |
+| `inventory` | family or friend | MCA `inventory`, to hand over a tool or take things |
+| `follow` / `stay` / `move` / `go_home` | adult, teen or family | MCA move states, `gohome` |
+| `armor` | adult or teen, family or friend | MCA `armor` |
+| `work` + task + amount | adult or teen, family or friend | `AiWork` |
+| `stop_work` | the villager is on a chore | MCA `stopworking` |
+| `give` + item + amount | acquaintance or closer, and the villager carries it | from the villager's own inventory |
+
+While holding a grudge, a villager only does `move`, `go_home` and `stop_work`.
+
+The prompt tells the villager what you are holding, the tools it carries (and so which tasks it can
+do), what it carries and its current task with progress. So "how's it going?" gets a true answer,
+and "go chop" without an axe gets "I need an axe".
+
+**Work** (`AiWork`):
+- `chop`, `harvest`, `hunt` and `fish` are MCA's own chores, assigned with MCA's command, using the
+  tool in the villager's inventory.
+- `mine` is this mod's, because MCA has a "prospecting" chore but no task for it. The villager is put
+  on that chore, which keeps MCA's brain idle, and this mod walks it to exposed natural stone and ore
+  within 10 blocks (3 down, 4 up). It digs with crack animation and pickaxe wear, and keeps the drops.
+- The player who gave the order gets a boss bar: "Alice - Chopping: 12/20".
+- With an amount, the villager stops when it has it (or its inventory is full), follows the player
+  back, hands the goods over, says so, and moves freely again.
+- MCA drops a chore when the tool runs out or the player leaves; the bar goes with it.
+
 ## Voice (acting TTS)
 
 Villagers speak their lines aloud with acting: the emotion, what the line is for, their mood, grief,

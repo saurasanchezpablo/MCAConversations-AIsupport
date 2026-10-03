@@ -254,6 +254,22 @@ public final class AiReplyParser {
             case AiEffect.Grudge.TYPE -> {
                 return Optional.of(new AiEffect.Grudge());
             }
+            case AiEffect.Action.TYPE -> {
+                Optional<AiActionKind> kind = string(json, "do").or(() -> string(json, "action")).flatMap(AiActionKind::byKey);
+                if (kind.isEmpty()) {
+                    return Optional.empty();
+                }
+                Optional<AiChore> chore = string(json, "task").flatMap(AiChore::byKey);
+                if (kind.get() == AiActionKind.WORK && chore.isEmpty()) {
+                    return Optional.empty(); // "go work" with no task named is not an order the game can follow
+                }
+                String item = kind.get() == AiActionKind.GIVE ? itemRef(json).filter(i -> !i.startsWith("#")).orElse("") : "";
+                if (kind.get() == AiActionKind.GIVE && item.isEmpty()) {
+                    return Optional.empty();
+                }
+                int amount = clampInt(json, "amount", kind.get() == AiActionKind.GIVE ? 1 : 0, 0, 64);
+                return Optional.of(new AiEffect.Action(kind.get(), chore, amount, item));
+            }
             default -> {
                 // Unknown effect types are dropped: the model cannot reach anything not written here.
             }

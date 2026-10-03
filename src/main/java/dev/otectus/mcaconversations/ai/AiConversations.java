@@ -224,6 +224,8 @@ public final class AiConversations {
                     session, offered, now, day);
             AiSocialEffects.Applied social = AiSocialEffects.apply(server, villager, player, villagerName, plan, reply,
                     turn, now, day);
+            // What the player asked the villager to do, by word: a window, an order, a task.
+            AiActions.apply(villager, player, villagerName, plan.actions(), now);
             // How the line should sound, sent ahead of MCA delivering it.
             AiVoice.direct(player, villager, reply.dialogue(), reply.emotion(), reply.deliveryOrDefault(), turn.facts());
             if (opener) {
@@ -342,6 +344,7 @@ public final class AiConversations {
     public static void converse(ServerPlayer player, Entity villager, String message) {
         long now = villager.level().getGameTime();
         setPartner(player.getUUID(), villager.getUUID(), now);
+        attend(villager, player, now);
         run(player, villager, message, null);
     }
 
@@ -366,6 +369,42 @@ public final class AiConversations {
             return;
         }
         turn.thenAccept(line -> line.ifPresent(text -> server.execute(() -> deliver(server, playerId, villagerId, text))));
+    }
+
+    /** How long a villager stays put and faces the player after a line of conversation. */
+    static final long ATTENTION_TICKS = 600;
+
+    /** Keeps the villager facing the player, unless it is off working or following someone. */
+    static void attend(Entity villager, ServerPlayer player, long now) {
+        if (AiWork.job(villager.getUUID()).isEmpty()) {
+            dev.otectus.mcaconversations.chat.VillagerAttention.hold(villager, player, now + ATTENTION_TICKS,
+                    dev.otectus.mcaconversations.chat.AttentionLedger.Source.CONVERSATION);
+        }
+    }
+
+    /** True when a plain right-click on a villager starts an AI conversation instead of MCA's menu. */
+    public static boolean talkOnClick() {
+        return enabled() && McaConversationsConfig.aiTalkOnClick();
+    }
+
+    /**
+     * A right-click on a villager, in talk-on-click mode: the villager turns to the player, the player's
+     * chat box opens, and (unless they were just talking) the villager speaks first.
+     */
+    public static void onClicked(ServerPlayer player, Entity villager) {
+        long now = villager.level().getGameTime();
+        attend(villager, player, now);
+        dev.otectus.mcaconversations.network.ConversationsNetwork.sendOpenChat(player);
+        Optional<UUID> partner = partner(player.getUUID(), now);
+        if (partner.isPresent() && partner.get().equals(villager.getUUID())) {
+            setPartner(player.getUUID(), villager.getUUID(), now);
+            return; // already talking: just pick the conversation back up
+        }
+        net.minecraft.world.item.ItemStack held = player.getMainHandItem();
+        String reason = player.getName().getString() + " just walked up to you and wants to talk"
+                + (held.isEmpty() ? "" : ", holding " + held.getCount() + " "
+                + AiContextFormat.words(String.valueOf(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(held.getItem()))));
+        open(player, villager, reason);
     }
 
     /** Hands the line to the villager's MCA message queue: they walk over and say it, MCA-style and voiced. */
@@ -481,6 +520,7 @@ public final class AiConversations {
     /** Every server tick: delayed effects, and villagers deciding to start a conversation. */
     public static void tick(MinecraftServer server) {
         AiTasks.drain(server.overworld().getGameTime());
+        AiWork.tick(server);
         if (autoConversations()) {
             AiInitiative.tick(server);
         }
@@ -489,6 +529,7 @@ public final class AiConversations {
     public static void onPlayerLogout(UUID player) {
         SESSIONS.removePlayer(player);
         PARTNERS.remove(player);
+        AiWork.forgetPlayer(player);
         LAST_FAILURE_NOTICE.remove(player);
     }
 
@@ -504,5 +545,6 @@ public final class AiConversations {
         AiTasks.clear();
         PARTNERS.clear();
         AiInitiative.reset();
+        AiWork.reset();
     }
 }

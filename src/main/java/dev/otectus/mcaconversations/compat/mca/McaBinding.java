@@ -508,6 +508,13 @@ public final class McaBinding {
     /** {@code List<String>} of structure ids MCA's own villagers spread rumours about. */
     public static final Member CONFIG_STRUCTURES_IN_RUMORS = getter(C_CONFIG, "structuresInRumors");
 
+    // Spoken actions (docs/AI-CONVERSATIONS.md, "Actions by word"): MCA's own interaction commands.
+    // handle(ServerPlayer, String) is everything MCA's interaction screen can ask for, server-side:
+    // follow/stay/move, chores (chopping, harvesting, hunting, fishing, prospecting), stopworking,
+    // trade, inventory, gift (main-hand item), gohome, armor. interactAt opens MCA's screen itself.
+    public static final Member COMMAND_HANDLE = virtual(C_COMMAND_HANDLER, "handle", boolean.class, 2);
+    public static final Member COMMAND_INTERACT_AT = virtual(C_COMMAND_HANDLER, "interactAt", Object.class, 3);
+
     // Voice (docs/AI-CONVERSATIONS.md, "Voice"): who a villager sounds like. Present on 7.7.33 and 7.7.36-beta.3.
     public static final Member GET_GENETICS = virtual(C_VILLAGER, "getGenetics", Object.class, 0);
     public static final Member GENETICS_GET_GENDER = virtual("entity.ai.Genetics", "getGender", Object.class, 0);
@@ -556,7 +563,8 @@ public final class McaBinding {
             TRIGGER_CALL,
             VILLAGER_CONVERSATION_MANAGER, CONVERSATION_ADD_MESSAGE, IS_PROMISED_TO, IS_ENGAGED_WITH,
             BUILDING_GET_POS0, BUILDING_GET_POS1, BUILDING_IS_COMPLETE, CONFIG_STRUCTURES_IN_RUMORS,
-            GET_GENETICS, GENETICS_GET_GENDER, IS_TOO_YOUNG_TO_SPEAK, IS_SPEECH_IMPAIRED);
+            GET_GENETICS, GENETICS_GET_GENDER, IS_TOO_YOUNG_TO_SPEAK, IS_SPEECH_IMPAIRED,
+            COMMAND_HANDLE, COMMAND_INTERACT_AT);
 
     // ---------------------------------------------------------------------------------------------
     // Resolution

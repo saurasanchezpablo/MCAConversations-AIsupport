@@ -122,6 +122,8 @@ class MixinTargetProbeTest {
         INJECTION_POINTS.put("SpeechManagerMixin", List.of("onChatMessage"));
         // MCA's Talk button; AI-only mode replaces the dialogue tree it opens.
         INJECTION_POINTS.put("InteractionDialogueInitMixin", List.of("handleServer"));
+        // A right-click on a villager; talk-on-click starts an AI conversation here.
+        INJECTION_POINTS.put("VillagerInteractMixin", List.of("interactAt"));
         INJECTION_POINTS.put("MCAClientMixin", List.of("useExpandedPersonalityTranslations"));
         // VillagerMessageMixin is deliberately absent on 1.21.1: VillagerMessage is a record of
         // Components and the JSON re-parse bug it worked around no longer exists (PORT_STATUS.md,

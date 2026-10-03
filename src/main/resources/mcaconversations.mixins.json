@@ -15,6 +15,7 @@
     "OpenAIChatAIMixin",
     "PlayerLegacyDataMixin",
     "QuestionMixin",
+    "VillagerInteractMixin",
     "VillagerTradeMixin"
   ],
   "client": [

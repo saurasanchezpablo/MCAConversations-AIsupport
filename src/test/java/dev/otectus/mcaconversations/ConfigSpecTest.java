@@ -125,7 +125,7 @@ class ConfigSpecTest {
                 "chat.enableChatMode", "chat.chatModeGreetOnApproach",
                 "dynamic.enabled", "dynamic.debugDirector", "history.enabled",
                 "group.enabled", "debug.debugLogging", "ai.enabled", "ai.debugAi", "ai.aiOnly",
-                "ai.autoConversations")) {
+                "ai.autoConversations", "ai.talkOnClick")) {
             assertTrue(common.contains(path), path + " must stay in the common spec");
         }
     }

@@ -6,6 +6,8 @@ import dev.otectus.mcaconversations.disposition.DispositionAxis;
 import dev.otectus.mcaconversations.state.ConversationState;
 
 import java.util.Collections;
+import java.util.EnumSet;
+import java.util.List;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Optional;
@@ -34,7 +36,8 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
                             Optional<String> questOffer, Optional<String> unlockTopic,
                             Optional<AiEffect.Opinion> opinion, Optional<String> directions,
                             int tradeMood, boolean grudge, boolean forgive,
-                            Optional<AiInterjection> interjection, Optional<GossipTone> gossip) {
+                            Optional<AiInterjection> interjection, Optional<GossipTone> gossip,
+                            List<AiEffect.Action> actions) {
 
     public static final String DECISION_PREFIX = "ai.chat.";
     /** Disposition step for one nudge; a strong judgement moves the axis a little further. */
@@ -46,6 +49,12 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
     static final int STRONG_TRADE_PENALTY = 10;
     /** MCA commands a villager holding a grudge still obeys: being told to leave is not a favour. */
     static final Set<String> COMMANDS_DESPITE_GRUDGE = Set.of("move-freely", "try-go-home");
+
+    /** Actions a villager holding a grudge still takes: leaving is not a favour. */
+    static final Set<AiActionKind> ACTIONS_DESPITE_GRUDGE = EnumSet.of(AiActionKind.MOVE, AiActionKind.GO_HOME,
+            AiActionKind.STOP_WORK);
+    /** Most actions one reply may carry (e.g. "here's an axe" and "go chop"). */
+    static final int MAX_ACTIONS = 2;
 
     /** How a strongly felt exchange is told around the village. */
     public enum GossipTone { KIND, CRUEL }
@@ -60,7 +69,7 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
         if (!reply.structured()) {
             return new AiOutcomePlan(decision, 0, Optional.empty(), Optional.empty(), Map.of(), Optional.empty(), "",
                     Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                    Optional.empty(), 0, false, false, Optional.empty(), Optional.empty());
+                    Optional.empty(), 0, false, false, Optional.empty(), Optional.empty(), List.of());
         }
         boolean confident = reply.confidence() >= policy.minConfidence();
         boolean gameplay = policy.gameplayEffects() && confident;
@@ -172,8 +181,27 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
         }
         Optional<ReactionSemantic> reaction = forgive ? Optional.of(ReactionSemantic.REPAIR) : emotion.reaction();
 
+        // --- spoken actions -----------------------------------------------------------------------------
+        // Asked for in so many words, so they do not wait on a confident judgement of feelings; they wait
+        // on the game: only actions and tasks the villager was shown as possible right now are taken.
+        List<AiEffect.Action> actions = new java.util.ArrayList<>();
+        if (policy.gameplayEffects()) {
+            for (AiEffect effect : reply.effects()) {
+                if (!(effect instanceof AiEffect.Action action) || actions.size() >= MAX_ACTIONS) {
+                    continue;
+                }
+                boolean allowed = facts.offeredActions().contains(action.kind().key())
+                        && (action.kind() != AiActionKind.WORK
+                        || action.chore().map(c -> facts.offeredChores().contains(c.key())).orElse(false))
+                        && (!holdsGrudge || ACTIONS_DESPITE_GRUDGE.contains(action.kind()));
+                if (allowed && actions.stream().noneMatch(a -> a.kind() == action.kind())) {
+                    actions.add(action);
+                }
+            }
+        }
+
         return new AiOutcomePlan(decision, hearts, state, reaction, Collections.unmodifiableMap(dispositions), memory,
                 command, promise, wish, quest, unlock, opinion, directions, tradeMood, grudge, forgive, interjection,
-                gossip);
+                gossip, List.copyOf(actions));
     }
 }

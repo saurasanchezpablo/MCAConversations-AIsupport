@@ -288,6 +288,14 @@ public final class McaConversationsConfig {
         }
     }
 
+    public static boolean aiTalkOnClick() {
+        try {
+            return COMMON.aiTalkOnClick.get();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     public static boolean aiAutoConversations() {
         try {
             return COMMON.aiAutoConversations.get();
@@ -612,6 +620,7 @@ public final class McaConversationsConfig {
         public final ModConfigSpec.BooleanValue debugAi;
         public final ModConfigSpec.BooleanValue aiOnly;
         public final ModConfigSpec.BooleanValue aiAutoConversations;
+        public final ModConfigSpec.BooleanValue aiTalkOnClick;
 
         public final ModConfigSpec.BooleanValue debugLogging;
 
@@ -1044,6 +1053,13 @@ public final class McaConversationsConfig {
                     "about the player (a promise due, a kept promise, a loss, village talk, a long absence, love) or",
                     "small talk. Replaces this mod's scripted greetings and initiatives, which are off while this is on.")
                     .define("autoConversations", true);
+            aiTalkOnClick = b.comment(
+                    "Right-clicking a villager starts an AI conversation (the villager turns to you and your chat box",
+                    "opens) instead of MCA's menu. Everything is then done by word: ask to trade, give what you hold,",
+                    "hand over a tool, follow, stay, go home, put armour on, go chopping/harvesting/hunting/fishing/mining",
+                    "(with an amount, they come back and hand it over), or give you something they carry.",
+                    "Sneak + right-click still opens MCA's menu.")
+                    .define("talkOnClick", true);
             b.pop();
 
             b.push("debug");
