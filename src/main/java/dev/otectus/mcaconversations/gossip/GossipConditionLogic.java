@@ -62,8 +62,9 @@ public final class GossipConditionLogic {
             return Optional.empty();
         }
         try {
-            return findNext(new GossipQuery(EnumSet.allOf(GossipEventType.class),
-                            GossipQuery.DEFAULT_MAX_AGE), villager, player)
+            EnumSet<GossipEventType> villageNews = EnumSet.allOf(GossipEventType.class);
+            villageNews.removeIf(GossipEventType::aboutListener);
+            return findNext(new GossipQuery(villageNews, GossipQuery.DEFAULT_MAX_AGE), villager, player)
                     .filter(gossip -> !gossip.isExternal())
                     .map(gossip -> gossip.nativeEvent().type().jsonName());
         } catch (Throwable t) {
@@ -114,7 +115,8 @@ public final class GossipConditionLogic {
 
         List<NormalizedGossip> candidates = new ArrayList<>();
         data.log().query(villageId.getAsInt(), query.types(), now, maxAge, villager.getUUID(),
-                        e -> McaCompat.hasMemory(villager,
+                        e -> (e.type().aboutListener() && !player.getUUID().equals(e.aUuid()))
+                                || McaCompat.hasMemory(villager,
                                 MemoryIds.playerScoped(MemoryIds.gossipTold(e.id()), player.getUUID())))
                 .map(NormalizedGossip::ofNative)
                 .ifPresent(candidates::add);

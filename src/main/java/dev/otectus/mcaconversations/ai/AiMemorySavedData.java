@@ -53,6 +53,39 @@ public final class AiMemorySavedData extends SavedData {
         setDirty();
     }
 
+    /** The pair's state for reading; empty when they have never had an AI conversation. */
+    public java.util.Optional<AiPairMemory> peek(UUID villager, UUID player) {
+        return store.get(villager, player);
+    }
+
+    /**
+     * The pair's state for changing, created if needed. The caller mutates it on the server thread,
+     * in the same tick; the file is marked dirty here.
+     */
+    public AiPairMemory edit(UUID villager, UUID player) {
+        setDirty();
+        return store.touch(villager, player);
+    }
+
+    public void recordBereavement(UUID villager, AiBereavement loss) {
+        store.recordBereavement(villager, loss);
+        setDirty();
+    }
+
+    public List<AiBereavement> bereavements(UUID villager, long today) {
+        return store.bereavements(villager, today);
+    }
+
+    public List<AiNeighbourOpinion> opinions(UUID villager) {
+        return store.opinions(villager);
+    }
+
+    public AiNeighbourOpinion adjustOpinion(UUID villager, UUID target, String targetName, String axis, int delta,
+                                            String cause, long today) {
+        setDirty();
+        return store.adjustOpinion(villager, target, targetName, axis, delta, cause, today);
+    }
+
     public void removeVillager(UUID villager) {
         if (store.removeVillager(villager) > 0) {
             setDirty();

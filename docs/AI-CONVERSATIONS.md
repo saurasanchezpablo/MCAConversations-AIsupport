@@ -113,6 +113,33 @@ Adding an effect type: a record in `AiEffect`, a parse branch in `AiReplyParser.
 in the schema in `AiPromptBuilder`, a planning rule in `AiOutcomePlan` and an apply step in
 `AiOutcomeApplier`. Nothing the parser does not know can reach the world.
 
+## Social life (the second layer)
+
+Thirteen behaviours that make villagers feel like people. Each one is a request the model may make,
+checked by `AiOutcomePlan` against `AiTurnFacts` (exactly what the model was shown that turn) and
+applied by `AiSocialEffects` / `AiPromises` through the system that already owns that kind of change.
+
+| # | Behaviour | What the model may say | Who decides / what applies it |
+|---|---|---|---|
+| 1 | **Village talk** | (automatic) a strongly felt exchange with a non-secret memory | New gossip types `PLAYER_KINDNESS` / `PLAYER_CRUELTY` in the village log. Scripted gossip tells them only to the player concerned ("Alice told me how kind you were"). Other villagers' AI prompts include them. |
+| 2 | **Promises** | `promise` {item?, count 1–8, days 1–7} | `AiPromises`: gifts add up toward item promises, and talking on time keeps a promise to return. One day past due it is broken. Kept: +3 hearts once, grateful, trust, a HIGH memory, Reputation `promise_kept`. Broken: −3 once, annoyed, trust down, a memory, `promise_broken`. |
+| 3 | **Quests** | `offer_quest` {one of the villager's eligible offers} | MCA: Quests' commission menu, restricted to that quest, opens after the line. The player still chooses. |
+| 4 | **Deeper topics** | `unlock_topic` {confided} | The player-scoped unlock memory that the authored "secret" topic already checks (friends only). |
+| 5 | **Wishes** | `wish` {item, days} | A gift of that item within the window gives +2 hearts once, grateful, a memory and a spoken thank-you. |
+| 6 | **Opinions of neighbours** | `opinion` {neighbour, warmth/trust/respect, up/down, cause} | Kept per villager (−3..3), shown back to the model, and mirrored into living-histories opinions when enabled. Only unambiguous names of real residents are accepted. |
+| 7 | **Bystanders chime in** | `interjection` {speaker, message} | Only a teen or adult villager within 8 blocks, shown to the model with their profession, relationship and memory of the player. They walk over and speak through their own MCA queue, and remember having joined in. |
+| 8 | **Romance** | `attraction` nudge, emotion `smitten` | Only for an adult, non-relative villager who is single or partnered with this player, and only from MCA's courtship threshold (10 hearts). Otherwise the prompt tells the villager to refuse flirting. |
+| 9 | **Grief** | (automatic) | When a villager dies, their partner, parents, children and siblings mourn for 21 days. The prompt says so. Cruelty to the bereaved costs 1.5× hearts, and comfort earns trust. |
+| 10 | **Reputation** | (automatic) | MCA: Reputation's own incidents: `promise_made` / `promise_kept` / `promise_broken`, and `public_apology` bound to a known grievance. |
+| 11 | **Directions** | `directions` {village building, or for friends a structure MCA rumours about} | The game computes compass and distance (plus rough coordinates for far structures, once a day per pair, throttled server-wide). The villager says it after the reply. |
+| 12 | **Prices** | `discount` (friends) | Vanilla villager gossip (`MINOR_POSITIVE`), which MCA trade prices are made of. Rudeness adds `MINOR_NEGATIVE`. At most 20 points per pair per day; it spreads and fades the vanilla way. |
+| 13 | **Refusal and apology** | `grudge`, `forgive` | A strongly hurtful exchange (or an explicit grudge) makes the villager refuse trading (a vanilla `Villager.startTrading` hook covers every MCA path), help and directions for 1.5 days. A sincere apology lifts it, clears annoyed, lowers tension and records a Reputation apology. |
+
+What makes it read as a person:
+- The prompt now has a **"how they talk"** block: plain short speech, opinions, questions back, no assistant tone, never mentioning game mechanics.
+- The villager carries their **own state**: grief, grudges, promises owed, a wish, views of neighbours, who is listening, and what the village says.
+- Extra lines (directions, thanks, interjections) are spoken through **MCA's own message queue**, after the reply, so they sound like the villager.
+
 ## Memory and persistence
 
 - **Long-term** (`data/mcaconversations_ai_memory.dat`, overworld `SavedData`, keyed by villager UUID
@@ -174,6 +201,19 @@ conversations. Every write happens on the server thread.
 - Let authored topics opt in to an `ai_unlock` gate that an AI effect can open, by id from a whitelist the topic declares.
 - An operator command to list or clear a pair's AI memories (`/conversations ai memories <villager>`).
 - A NeoForge 1.21.1 mirror, if this fork tracks the port.
+
+## Manual test plan (social layer)
+
+1. Promise: *"I'll bring you 3 wheat tomorrow."* → `promise=true`. Gift 3 wheat on separate gifts; the third gift gives *"You actually remembered!"*.
+2. Broken promise: promise, then wait more than a day past due and talk again → she brings it up; trust down.
+3. Wish: chat until she mentions something she'd love; gift it → thank-you line, +2 hearts.
+4. Grudge: insult her badly → sneak-click to trade → *"I'm not doing business with you today."* Apologise sincerely, then trade again.
+5. Romance: flirt with a married villager → refused; with a single adult friend → may get `smitten`.
+6. Grief: kill a villager's sibling (test world) → talk to the sibling → grief in the reply; comfort gives trust.
+7. Directions: *"Where's the blacksmith?"* → line with compass and distance; as a friend, ask about a mineshaft.
+8. Bystander: talk near a second villager → sometimes they walk over and chime in.
+9. Village talk: be very kind to Alice, then talk to Bob in the same village → he has heard.
+10. Quests (with MCA: Quests): ask if she needs help → the commission menu opens for one quest.
 
 ## Manual test plan
 

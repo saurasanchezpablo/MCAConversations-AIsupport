@@ -13,7 +13,8 @@
     "McaInteractionCloseMixin",
     "NetworkHandlerMixin",
     "OpenAIChatAIMixin",
-    "QuestionMixin"
+    "QuestionMixin",
+    "VillagerTradeMixin"
   ],
   "client": [
     "client.ChatScreenChoiceMixin",

@@ -24,9 +24,23 @@ public final class AiPairMemory {
     /** Most important first, then newest: the order memories are recalled in. */
     private static final Comparator<AiMemory> RECALL_ORDER = EVICTION_ORDER.reversed();
 
+    /** Most promises (open and recently settled) kept per pair. */
+    public static final int MAX_PROMISES = 6;
+    /** Days a settled promise stays known, so the villager can still bring it up. */
+    public static final long SETTLED_PROMISE_DAYS = 7;
+
     private final List<AiMemory> memories = new ArrayList<>();
+    private final List<AiPromise> promises = new ArrayList<>();
+    private AiWish wish;
     private long lastTalkDay = -1;
     private int turns;
+    private int nextPromiseId = 1;
+    /** The villager refuses this player favours until this game time (ticks); -1 for none. */
+    private long grudgeUntil = -1;
+    private String grudgeReason = "";
+    private long lastDirectionsDay = -1;
+    private long tradeMoodDay = -1;
+    private int tradeMoodToday;
 
     /**
      * Stores a memory. A memory saying the same thing as one already held reinforces it instead (newer
@@ -77,6 +91,111 @@ public final class AiPairMemory {
                 .limit(Math.max(0, limit)).toList();
     }
 
+    // --- promises -------------------------------------------------------------------------------------
+
+    public List<AiPromise> promises() {
+        return List.copyOf(promises);
+    }
+
+    public long openPromises() {
+        return promises.stream().filter(AiPromise::pending).count();
+    }
+
+    /** Records a new promise; returns it, or empty when there is no room for another open one. */
+    public java.util.Optional<AiPromise> addPromise(AiEffect.Promise request, long today, int maxOpen) {
+        if (openPromises() >= maxOpen) {
+            return java.util.Optional.empty();
+        }
+        AiPromise promise = new AiPromise(nextPromiseId++, request.item(), request.isVisit() ? 0 : request.count(), 0,
+                today, today + request.days(), AiPromise.State.PENDING, -1, request.summary());
+        promises.add(promise);
+        trimPromises(today);
+        return java.util.Optional.of(promise);
+    }
+
+    /** Replaces a promise by id (after a delivery or a settlement). */
+    public void updatePromise(AiPromise changed) {
+        for (int i = 0; i < promises.size(); i++) {
+            if (promises.get(i).id() == changed.id()) {
+                promises.set(i, changed);
+                return;
+            }
+        }
+    }
+
+    private void trimPromises(long today) {
+        promises.removeIf(p -> !p.pending() && today - p.settledDay() > SETTLED_PROMISE_DAYS);
+        while (promises.size() > MAX_PROMISES) {
+            // Oldest settled first; an open promise is never dropped to make room.
+            AiPromise victim = promises.stream().filter(p -> !p.pending()).findFirst().orElse(null);
+            if (victim == null) {
+                break;
+            }
+            promises.remove(victim);
+        }
+    }
+
+    // --- wish ------------------------------------------------------------------------------------------
+
+    public java.util.Optional<AiWish> wish(long today) {
+        return wish != null && wish.open(today) ? java.util.Optional.of(wish) : java.util.Optional.empty();
+    }
+
+    public void setWish(AiWish wish) {
+        this.wish = wish;
+    }
+
+    // --- grudge ----------------------------------------------------------------------------------------
+
+    public boolean grudge(long gameTime) {
+        return grudgeUntil >= 0 && gameTime < grudgeUntil;
+    }
+
+    public String grudgeReason() {
+        return grudgeReason;
+    }
+
+    public void holdGrudge(long untilGameTime, String reason) {
+        grudgeUntil = Math.max(grudgeUntil, untilGameTime);
+        grudgeReason = reason == null ? "" : AiText.clean(reason, AiText.MAX_MEMORY);
+    }
+
+    public void forgive() {
+        grudgeUntil = -1;
+        grudgeReason = "";
+    }
+
+    // --- daily limits ------------------------------------------------------------------------------------
+
+    /** True while no directions to a far place were given on {@code today}. */
+    public boolean lastDirectionsDayIsNot(long today) {
+        return lastDirectionsDay != today;
+    }
+
+    /** True once per day: the villager gives directions at most once a day to one player. */
+    public boolean claimDirections(long today) {
+        if (lastDirectionsDay == today) {
+            return false;
+        }
+        lastDirectionsDay = today;
+        return true;
+    }
+
+    /**
+     * How much of {@code requested} trade-mood points may still be applied today, booking it. The
+     * absolute total per pair per day is capped at {@code dailyCap}.
+     */
+    public int claimTradeMood(int requested, long today, int dailyCap) {
+        if (tradeMoodDay != today) {
+            tradeMoodDay = today;
+            tradeMoodToday = 0;
+        }
+        int room = Math.max(0, dailyCap - tradeMoodToday);
+        int granted = Integer.signum(requested) * Math.min(room, Math.abs(requested));
+        tradeMoodToday += Math.abs(granted);
+        return granted;
+    }
+
     public void recordTurn(long day) {
         lastTalkDay = day;
         turns = turns == Integer.MAX_VALUE ? turns : turns + 1;
@@ -95,7 +214,7 @@ public final class AiPairMemory {
     }
 
     public boolean isEmpty() {
-        return memories.isEmpty() && turns == 0;
+        return memories.isEmpty() && turns == 0 && promises.isEmpty() && wish == null && grudgeUntil < 0;
     }
 
     CompoundTag toNbt() {
@@ -107,6 +226,20 @@ public final class AiPairMemory {
         tag.put("mem", list);
         tag.putLong("last", lastTalkDay);
         tag.putInt("turns", turns);
+        ListTag promiseList = new ListTag();
+        for (AiPromise promise : promises) {
+            promiseList.add(promise.toNbt());
+        }
+        tag.put("promises", promiseList);
+        tag.putInt("next_promise", nextPromiseId);
+        if (wish != null) {
+            tag.put("wish", wish.toNbt());
+        }
+        tag.putLong("grudge", grudgeUntil);
+        tag.putString("grudge_reason", grudgeReason);
+        tag.putLong("directions_day", lastDirectionsDay);
+        tag.putLong("trade_day", tradeMoodDay);
+        tag.putInt("trade_today", tradeMoodToday);
         return tag;
     }
 
@@ -118,6 +251,19 @@ public final class AiPairMemory {
         }
         pair.lastTalkDay = tag.contains("last") ? tag.getLong("last") : -1;
         pair.turns = Math.max(0, tag.getInt("turns"));
+        ListTag promiseList = tag.getList("promises", Tag.TAG_COMPOUND);
+        for (int i = 0; i < promiseList.size() && pair.promises.size() < MAX_PROMISES; i++) {
+            AiPromise.fromNbt(promiseList.getCompound(i)).ifPresent(pair.promises::add);
+        }
+        pair.nextPromiseId = Math.max(1, tag.getInt("next_promise"));
+        if (tag.contains("wish", Tag.TAG_COMPOUND)) {
+            pair.wish = AiWish.fromNbt(tag.getCompound("wish")).orElse(null);
+        }
+        pair.grudgeUntil = tag.contains("grudge") ? tag.getLong("grudge") : -1;
+        pair.grudgeReason = AiText.clean(tag.getString("grudge_reason"), AiText.MAX_MEMORY);
+        pair.lastDirectionsDay = tag.contains("directions_day") ? tag.getLong("directions_day") : -1;
+        pair.tradeMoodDay = tag.contains("trade_day") ? tag.getLong("trade_day") : -1;
+        pair.tradeMoodToday = Math.max(0, tag.getInt("trade_today"));
         return pair;
     }
 }

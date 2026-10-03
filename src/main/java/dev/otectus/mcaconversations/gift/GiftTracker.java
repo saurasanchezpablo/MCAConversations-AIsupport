@@ -34,6 +34,8 @@ public final class GiftTracker {
             dev.otectus.mcaconversations.conversation.Relationships.creditContact(villager, player);
             // Whether it helped is Townstead's to say, a tick from now (Townstead spec §14).
             GiftNeedObservation.onAccepted(villager, player);
+            // A promise made or a wish voiced in an AI conversation may be what this gift answers.
+            dev.otectus.mcaconversations.ai.AiConversations.onGiftAccepted(villager, player, stack);
         }
         if (!McaConversationsConfig.COMMON.enableStates.get() && !McaConversationsConfig.COMMON.enableTemplates.get()) {
             return;

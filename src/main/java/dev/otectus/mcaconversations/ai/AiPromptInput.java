@@ -25,19 +25,36 @@ import java.util.UUID;
  * @param commands           MCA's currently valid commands; empty when tools are off
  * @param transcript         the current conversation so far
  * @param playerMessage      what the player just said
+ * @param offers             what this villager could offer right now, as schema lines (quests, topics, places,
+ *                           neighbours); the model may only name these
+ * @param bystanders         true when someone is close enough to chime in
  */
 public record AiPromptInput(String model, String systemPrompt, boolean inHouse, boolean sessionTags,
                             boolean longTermMemoryTag, boolean sharedMemoryTag, String language, boolean jsonMode,
                             long worldSeed, UUID playerId, UUID villagerId, String playerName, String villagerName,
                             String mcaDescription, String editedContext, String safetyRule,
                             List<AiContextSection> sections, List<AiMemory> memories, long today,
-                            List<CommandOption> commands, List<AiSessions.Line> transcript, String playerMessage) {
+                            List<CommandOption> commands, List<AiSessions.Line> transcript, String playerMessage,
+                            List<String> offers, boolean bystanders) {
 
     public AiPromptInput {
         sections = sections == null ? List.of() : List.copyOf(sections);
         memories = memories == null ? List.of() : List.copyOf(memories);
         commands = commands == null ? List.of() : List.copyOf(commands);
         transcript = transcript == null ? List.of() : List.copyOf(transcript);
+        offers = offers == null ? List.of() : List.copyOf(offers);
+    }
+
+    /** Without the social layer: no offers, nobody around. */
+    public AiPromptInput(String model, String systemPrompt, boolean inHouse, boolean sessionTags,
+                         boolean longTermMemoryTag, boolean sharedMemoryTag, String language, boolean jsonMode,
+                         long worldSeed, UUID playerId, UUID villagerId, String playerName, String villagerName,
+                         String mcaDescription, String editedContext, String safetyRule,
+                         List<AiContextSection> sections, List<AiMemory> memories, long today,
+                         List<CommandOption> commands, List<AiSessions.Line> transcript, String playerMessage) {
+        this(model, systemPrompt, inHouse, sessionTags, longTermMemoryTag, sharedMemoryTag, language, jsonMode,
+                worldSeed, playerId, villagerId, playerName, villagerName, mcaDescription, editedContext, safetyRule,
+                sections, memories, today, commands, transcript, playerMessage, List.of(), false);
     }
 
     /** An MCA chat-AI command the model may name in {@code optionalCommand}. */

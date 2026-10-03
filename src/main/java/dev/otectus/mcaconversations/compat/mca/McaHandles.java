@@ -175,6 +175,14 @@ public final class McaHandles {
     private static final MethodHandle H_BUILDING_TYPE = R.handle(McaBinding.BUILDING_GET_TYPE);
     private static final MethodHandle H_VILLAGE_BUILDINGS = R.handle(McaBinding.VILLAGE_GET_BUILDINGS);
     private static final MethodHandle H_BUILDING_ID = R.handle(McaBinding.BUILDING_GET_ID);
+    private static final MethodHandle H_CONVERSATION_MANAGER = R.handle(McaBinding.VILLAGER_CONVERSATION_MANAGER);
+    private static final MethodHandle H_ADD_MESSAGE = R.handle(McaBinding.CONVERSATION_ADD_MESSAGE);
+    private static final MethodHandle H_IS_PROMISED_TO = R.handle(McaBinding.IS_PROMISED_TO);
+    private static final MethodHandle H_IS_ENGAGED_WITH = R.handle(McaBinding.IS_ENGAGED_WITH);
+    private static final MethodHandle H_BUILDING_POS0 = R.handle(McaBinding.BUILDING_GET_POS0);
+    private static final MethodHandle H_BUILDING_POS1 = R.handle(McaBinding.BUILDING_GET_POS1);
+    private static final MethodHandle H_BUILDING_COMPLETE = R.handle(McaBinding.BUILDING_IS_COMPLETE);
+    private static final MethodHandle H_STRUCTURES_IN_RUMORS = R.handle(McaBinding.CONFIG_STRUCTURES_IN_RUMORS);
 
     // ==============================================================================================
     // Type tests
@@ -576,6 +584,95 @@ public final class McaHandles {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    /** True when this villager is promised (bouquet) to the given player. */
+    public static boolean isPromisedTo(Object entity, UUID playerUuid) {
+        return relationFlag(H_IS_PROMISED_TO, entity, playerUuid);
+    }
+
+    /** True when this villager is engaged (engagement ring) to the given player. */
+    public static boolean isEngagedWith(Object entity, UUID playerUuid) {
+        return relationFlag(H_IS_ENGAGED_WITH, entity, playerUuid);
+    }
+
+    private static boolean relationFlag(MethodHandle handle, Object entity, UUID playerUuid) {
+        Object relationship = relationshipOf(entity);
+        if (relationship == null || playerUuid == null) {
+            return false;
+        }
+        try {
+            return (boolean) handle.invoke(relationship, playerUuid);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * Queues a line in the villager's own MCA message queue: MCA's {@code DeliverMessageTask} walks the
+     * villager over to the receiver and speaks it in MCA's chat style, exactly like a chat-AI reply.
+     * Returns false when the queue cannot be reached.
+     */
+    public static boolean queueMessage(Object villager, Entity receiver, net.minecraft.network.chat.MutableComponent line) {
+        Object manager = isVillager(villager) ? ref(H_CONVERSATION_MANAGER, villager) : null;
+        if (manager == null || receiver == null || line == null) {
+            return false;
+        }
+        try {
+            H_ADD_MESSAGE.invoke(manager, receiver, line);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * Every complete building of a village, as type to the centre of its bounding box. A type with
+     * several buildings keeps the one nearest {@code near}.
+     */
+    public static Map<String, BlockPos> villageBuildingCentres(ServerLevel level, int villageId, BlockPos near) {
+        Map<String, BlockPos> out = new java.util.TreeMap<>();
+        Object village = village(level, villageId);
+        if (village == null) {
+            return out;
+        }
+        try {
+            if (!(H_VILLAGE_BUILDINGS.invoke(village) instanceof Map<?, ?> buildings)) {
+                return out;
+            }
+            for (Object building : List.copyOf(buildings.values())) {
+                if (building == null || !(ref(H_BUILDING_TYPE, building) instanceof String type) || type.isBlank()
+                        || !(boolean) H_BUILDING_COMPLETE.invoke(building)) {
+                    continue;
+                }
+                if (!(H_BUILDING_POS0.invoke(building) instanceof BlockPos a)
+                        || !(H_BUILDING_POS1.invoke(building) instanceof BlockPos b)) {
+                    continue;
+                }
+                BlockPos centre = new BlockPos((a.getX() + b.getX()) / 2, (a.getY() + b.getY()) / 2, (a.getZ() + b.getZ()) / 2);
+                String key = type.toLowerCase(Locale.ROOT);
+                BlockPos held = out.get(key);
+                if (held == null || (near != null && centre.distSqr(near) < held.distSqr(near))) {
+                    out.put(key, centre);
+                }
+            }
+        } catch (Throwable ignored) {
+            // A reshaped building map degrades to "knows no buildings".
+        }
+        return out;
+    }
+
+    /** The structure ids MCA's villagers spread rumours about (MCA config), or empty. */
+    public static List<String> structuresInRumors() {
+        try {
+            Object config = H_CONFIG_INSTANCE.invoke();
+            if (config != null && H_STRUCTURES_IN_RUMORS.invoke(config) instanceof List<?> list) {
+                return list.stream().filter(String.class::isInstance).map(String.class::cast).toList();
+            }
+        } catch (Throwable ignored) {
+            // fall through
+        }
+        return List.of();
     }
 
     /** Resolves a possibly-unloaded villager's name from MCA's family tree. */

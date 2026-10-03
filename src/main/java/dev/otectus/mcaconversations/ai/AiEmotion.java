@@ -17,6 +17,8 @@ public enum AiEmotion {
     HAPPY(null, ReactionSemantic.WARM),
     GRATEFUL(ConversationState.GRATEFUL, ReactionSemantic.GRATEFUL),
     PROUD(ConversationState.PROUD, ReactionSemantic.WARM),
+    /** Romantic interest. Only ever leaves its state where romance is allowed (see AiOutcomePlan). */
+    SMITTEN(ConversationState.SMITTEN, ReactionSemantic.WARM),
     AMUSED(null, ReactionSemantic.AMUSED),
     SURPRISED(null, ReactionSemantic.ACKNOWLEDGE),
     SAD(null, ReactionSemantic.HURT),
@@ -52,7 +54,7 @@ public enum AiEmotion {
 
     /** True when this emotion's state is one a positive exchange would leave. */
     public boolean warm() {
-        return this == GRATEFUL || this == PROUD || this == HAPPY;
+        return this == GRATEFUL || this == PROUD || this == HAPPY || this == SMITTEN;
     }
 
     /** True when this emotion's state is one a negative exchange would leave. */

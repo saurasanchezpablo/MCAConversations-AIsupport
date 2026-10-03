@@ -168,6 +168,15 @@ public final class AiConversations {
             AiSessions.Session session = SESSIONS.session(villagerId, playerId);
             AiMemorySavedData memoryData = AiMemorySavedData.get(server);
 
+            // Promises are judged by what the player did since they last talked, before the villager
+            // speaks, so a promise kept or broken is already part of what the villager knows.
+            AiPromises.sweep(server, villager, player, now, day);
+            AiSocial.Turn turn = AiSocial.capture(server, villager, player, villagerName, playerName, policy, now, day);
+            List<AiContextSection> sections = new java.util.ArrayList<>(AiContextCollector.collect(villager, player,
+                    villagerName, playerName, memoryData.turns(villagerId, playerId),
+                    memoryData.lastTalkDay(villagerId, playerId), day));
+            sections.addAll(turn.sections());
+
             List<McaChatAi.Command> commands = settings.useTools() && policy.gameplayEffects()
                     ? McaChatAi.activeCommands(villager, player) : List.of();
             Set<String> offered = new LinkedHashSet<>();
@@ -180,12 +189,11 @@ public final class AiConversations {
                     McaChatAi.describeVillager(villager, player, playerName, villagerName),
                     McaChatAi.editedContext(villager, player),
                     safetyRule(villager, player),
-                    AiContextCollector.collect(villager, player, villagerName, playerName,
-                            memoryData.turns(villagerId, playerId), memoryData.lastTalkDay(villagerId, playerId), day),
+                    sections,
                     policy.memoriesPerPair() > 0 ? memoryData.recall(villagerId, playerId, day, PROMPT_MEMORIES) : List.of(),
                     day,
                     commands.stream().map(c -> new AiPromptInput.CommandOption(c.id(), c.description())).toList(),
-                    session.transcript(), message);
+                    session.transcript(), message, AiSocial.offers(turn), !turn.bystanderIds().isEmpty());
             String body = AiPromptBuilder.body(input);
             if (McaConversationsConfig.debugAi()) {
                 McaConversations.LOGGER.info("[ai] request villager={} player={} chars={} memories={} commands={}",
@@ -196,7 +204,7 @@ public final class AiConversations {
             return transport.send(settings.endpoint(), settings.tokenFor(playerName), body, timeout)
                     .exceptionally(t -> AiHttpResult.failed("network_error"))
                     .thenApplyAsync(result -> complete(server, playerId, villagerId, villagerName, message, result,
-                            policy, offered, settings), server)
+                            policy, offered, settings, turn), server)
                     .exceptionally(t -> {
                         McaConversations.LOGGER.error("AI conversation turn failed; nothing was applied", t);
                         server.execute(() -> SESSIONS.finish(villagerId, playerId, now));
@@ -212,7 +220,7 @@ public final class AiConversations {
     /** Step 3, on the server thread. */
     private static Optional<String> complete(MinecraftServer server, UUID playerId, UUID villagerId, String villagerName,
                                              String message, AiHttpResult result, AiPolicy policy, Set<String> offered,
-                                             McaChatAi.Settings settings) {
+                                             McaChatAi.Settings settings, AiSocial.Turn turn) {
         ServerPlayer player = server.getPlayerList().getPlayer(playerId);
         Entity villager = player == null ? null : player.serverLevel().getEntity(villagerId);
         long now = villager != null ? villager.level().getGameTime() : server.overworld().getGameTime();
@@ -236,11 +244,13 @@ public final class AiConversations {
                 return Optional.empty();
             }
             AiReply reply = parsed.get();
-            AiOutcomePlan plan = AiOutcomePlan.of(reply, policy);
+            AiOutcomePlan plan = AiOutcomePlan.of(reply, policy, turn.facts());
             AiSessions.Session session = SESSIONS.session(villagerId, playerId);
             long day = AffectionMath.dayOf(now);
             AiOutcomeApplier.Applied applied = AiOutcomeApplier.apply(server, villager, player, reply, plan, policy,
                     session, offered, now, day);
+            AiSocialEffects.Applied social = AiSocialEffects.apply(server, villager, player, villagerName, plan, reply,
+                    turn, now, day);
             session.recordExchange(message, reply.dialogue());
             if (McaConversationsConfig.debugAi()) {
                 McaConversations.LOGGER.info("[ai] reply villager={} player={} structured={} impact={} confidence={} "
@@ -251,6 +261,11 @@ public final class AiConversations {
                         reply.effects(), reply.command(), plan.authoredHearts(), plan.state().orElse(null),
                         plan.dispositions(), applied.grantedHearts(), applied.measuredHearts(), applied.heartReason(),
                         applied.remembered(), applied.commandRan());
+                McaConversations.LOGGER.info("[ai] social villager={} interjection={} promise={} wish={} quest={} unlock={} "
+                                + "opinion={} directions={} tradeMood={} grudge={} forgiven={} gossip={} grieving={} romance={}",
+                        villagerId, social.interjected(), social.promise(), social.wish(), social.quest(), social.unlock(),
+                        social.opinion(), social.directions(), social.tradeMood(), social.grudge(), social.forgiven(),
+                        social.gossip(), turn.facts().grieving(), turn.facts().romanceAllowed());
             }
             return Optional.of(reply.dialogue());
         } finally {
@@ -310,6 +325,74 @@ public final class AiConversations {
         AiMemorySavedData.get(server).removeVillager(villager);
     }
 
+    /**
+     * A villager died: their family mourn them (partner, parents, children, siblings, from MCA's family
+     * tree), then everything the dead villager carried is forgotten. Server thread.
+     */
+    public static void onVillagerDied(net.minecraft.world.entity.Entity deceased) {
+        MinecraftServer server = deceased.getServer();
+        if (server == null || !(deceased.level() instanceof net.minecraft.server.level.ServerLevel level)) {
+            return;
+        }
+        try {
+            String name = McaCompat.getVillagerName(deceased).orElse(deceased.getName().getString());
+            long day = AffectionMath.dayOf(level.getGameTime());
+            UUID id = deceased.getUUID();
+            AiMemorySavedData data = AiMemorySavedData.get(server);
+            McaCompat.getPartnerFromTree(level, id).ifPresent(p -> data.recordBereavement(p, new AiBereavement(name, "partner", day)));
+            // Seen from the mourner's side: the dead villager's parents lost a child, and so on.
+            McaCompat.getParents(level, id).forEach(p -> data.recordBereavement(p, new AiBereavement(name, "child", day)));
+            McaCompat.getChildren(level, id).forEach(c -> data.recordBereavement(c, new AiBereavement(name, "parent", day)));
+            McaCompat.getSiblings(level, id).forEach(s -> data.recordBereavement(s, new AiBereavement(name, "sibling", day)));
+        } catch (Throwable t) {
+            McaConversations.LOGGER.debug("AI bereavement record failed", t);
+        }
+        onVillagerDeath(server, deceased.getUUID());
+    }
+
+    /** A gift was accepted (from GiftTracker): promises and wishes. Server thread. */
+    public static void onGiftAccepted(net.minecraft.world.entity.Entity villager, ServerPlayer player,
+                                      net.minecraft.world.item.ItemStack stack) {
+        if (!enabled() || !McaConversationsConfig.aiGameplayEffects() || player.getServer() == null) {
+            return;
+        }
+        try {
+            long now = villager.level().getGameTime();
+            AiPromises.onGift(player.getServer(), villager, player, stack, now, AffectionMath.dayOf(now));
+        } catch (Throwable t) {
+            McaConversations.LOGGER.debug("AI gift observation failed", t);
+        }
+    }
+
+    /**
+     * Whether this villager refuses to trade with this player right now (a grudge from an AI
+     * conversation). Says why, in the villager's voice, when it refuses. Server thread.
+     */
+    public static boolean refusesTrade(net.minecraft.world.entity.Entity villager, ServerPlayer player) {
+        if (!enabled() || !McaConversationsConfig.aiGameplayEffects() || player.getServer() == null
+                || !McaCompat.isMcaVillager(villager)) {
+            return false;
+        }
+        try {
+            long now = villager.level().getGameTime();
+            boolean refuses = AiMemorySavedData.get(player.getServer()).peek(villager.getUUID(), player.getUUID())
+                    .map(pair -> pair.grudge(now)).orElse(false);
+            if (refuses) {
+                String name = McaCompat.getVillagerName(villager).orElse(villager.getName().getString());
+                player.displayClientMessage(Component.literal(name + ": ").append(AiLines.variant("refuse_trade"))
+                        .withStyle(ChatFormatting.GRAY), false);
+            }
+            return refuses;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** Every server tick: delayed effects. */
+    public static void tick(MinecraftServer server) {
+        AiTasks.drain(server.overworld().getGameTime());
+    }
+
     public static void onPlayerLogout(UUID player) {
         SESSIONS.removePlayer(player);
         LAST_FAILURE_NOTICE.remove(player);
@@ -324,5 +407,6 @@ public final class AiConversations {
     public static void onServerStopped() {
         SESSIONS.clear();
         LAST_FAILURE_NOTICE.clear();
+        AiTasks.clear();
     }
 }
