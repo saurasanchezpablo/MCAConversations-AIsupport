@@ -52,7 +52,7 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
 
     /** Actions a villager holding a grudge still takes: leaving is not a favour. */
     static final Set<AiActionKind> ACTIONS_DESPITE_GRUDGE = EnumSet.of(AiActionKind.MOVE, AiActionKind.GO_HOME,
-            AiActionKind.STOP_WORK);
+            AiActionKind.STOP_WORK, AiActionKind.GIFT);
     /** Most actions one reply may carry (e.g. "here's an axe" and "go chop"). */
     static final int MAX_ACTIONS = 2;
 
@@ -193,6 +193,7 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
                 boolean allowed = facts.offeredActions().contains(action.kind().key())
                         && (action.kind() != AiActionKind.WORK
                         || action.chore().map(c -> facts.offeredChores().contains(c.key())).orElse(false))
+                        && (action.place().isEmpty() || facts.offeredPlaces().contains(action.place()))
                         && (!holdsGrudge || ACTIONS_DESPITE_GRUDGE.contains(action.kind()));
                 if (allowed && actions.stream().noneMatch(a -> a.kind() == action.kind())) {
                     actions.add(action);

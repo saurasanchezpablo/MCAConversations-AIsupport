@@ -91,4 +91,34 @@ class AiActionsTest {
         assertTrue(AiOutcomePlan.of(reply(new AiEffect.Action(AiActionKind.TRADE, Optional.empty(), 0, "")),
                 new AiPolicy(true, false, 0.6, 12), facts).actions().isEmpty());
     }
+
+    @Test
+    void errandsCarryTheirPlaceOrItem() {
+        assertEquals(List.of(new AiEffect.Action(AiActionKind.GUIDE, Optional.empty(), 0, "", "blacksmith")),
+                parse("{\"type\":\"action\",\"do\":\"guide\",\"place\":\"blacksmith\"}"));
+        assertEquals(List.of(new AiEffect.Action(AiActionKind.FETCH, Optional.empty(), 10, "minecraft:bread", "")),
+                parse("{\"type\":\"action\",\"do\":\"fetch\",\"item\":\"bread\",\"amount\":10}"));
+        assertTrue(parse("{\"type\":\"action\",\"do\":\"guide\"}").isEmpty(), "guide needs a place");
+        assertTrue(parse("{\"type\":\"action\",\"do\":\"fetch\"}").isEmpty(), "fetch needs an item");
+        assertEquals(1, parse("{\"type\":\"action\",\"do\":\"pick_up\"}").size());
+    }
+
+    @Test
+    void aGuideOnlyGoesToAPlaceItWasShown() {
+        AiTurnFacts facts = new AiTurnFacts(RelationshipBand.FRIEND, 40, false, false, false, Set.of(), Set.of(),
+                Set.of("blacksmith"), Set.of(), Set.of(), 0, false, Set.of("guide", "wait_at"), Set.of());
+        assertEquals(1, AiOutcomePlan.of(reply(new AiEffect.Action(AiActionKind.GUIDE, Optional.empty(), 0, "", "blacksmith")),
+                ALL, facts).actions().size());
+        assertTrue(AiOutcomePlan.of(reply(new AiEffect.Action(AiActionKind.GUIDE, Optional.empty(), 0, "", "castle")),
+                ALL, facts).actions().isEmpty());
+    }
+
+    @Test
+    void aGiftIsWelcomeEvenFromSomeoneInDisgrace() {
+        AiTurnFacts facts = facts(Set.of("gift", "trade"), Set.of(), true);
+        assertEquals(List.of(AiActionKind.GIFT), AiOutcomePlan.of(reply(
+                new AiEffect.Action(AiActionKind.TRADE, Optional.empty(), 0, ""),
+                new AiEffect.Action(AiActionKind.GIFT, Optional.empty(), 0, "")), ALL, facts)
+                .actions().stream().map(AiEffect.Action::kind).toList());
+    }
 }

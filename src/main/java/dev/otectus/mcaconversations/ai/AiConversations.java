@@ -225,7 +225,7 @@ public final class AiConversations {
             AiSocialEffects.Applied social = AiSocialEffects.apply(server, villager, player, villagerName, plan, reply,
                     turn, now, day);
             // What the player asked the villager to do, by word: a window, an order, a task.
-            AiActions.apply(villager, player, villagerName, plan.actions(), now);
+            AiActions.apply(villager, player, villagerName, plan.actions(), turn, now);
             // How the line should sound, sent ahead of MCA delivering it.
             AiVoice.direct(player, villager, reply.dialogue(), reply.emotion(), reply.deliveryOrDefault(), turn.facts());
             if (opener) {
@@ -376,7 +376,7 @@ public final class AiConversations {
 
     /** Keeps the villager facing the player, unless it is off working or following someone. */
     static void attend(Entity villager, ServerPlayer player, long now) {
-        if (AiWork.job(villager.getUUID()).isEmpty()) {
+        if (AiWork.job(villager.getUUID()).isEmpty() && AiErrands.progressText(villager).isEmpty()) {
             dev.otectus.mcaconversations.chat.VillagerAttention.hold(villager, player, now + ATTENTION_TICKS,
                     dev.otectus.mcaconversations.chat.AttentionLedger.Source.CONVERSATION);
         }
@@ -521,6 +521,7 @@ public final class AiConversations {
     public static void tick(MinecraftServer server) {
         AiTasks.drain(server.overworld().getGameTime());
         AiWork.tick(server);
+        AiErrands.tick(server);
         if (autoConversations()) {
             AiInitiative.tick(server);
         }
@@ -530,6 +531,7 @@ public final class AiConversations {
         SESSIONS.removePlayer(player);
         PARTNERS.remove(player);
         AiWork.forgetPlayer(player);
+        AiErrands.forgetPlayer(player);
         LAST_FAILURE_NOTICE.remove(player);
     }
 
@@ -546,5 +548,6 @@ public final class AiConversations {
         PARTNERS.clear();
         AiInitiative.reset();
         AiWork.reset();
+        AiErrands.reset();
     }
 }

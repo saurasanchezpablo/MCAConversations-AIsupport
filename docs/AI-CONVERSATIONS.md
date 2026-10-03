@@ -208,7 +208,7 @@ opens MCA's menu (`VillagerInteractMixin` on `VillagerEntityMCA.interactAt`):
 | `do` | Offered when | Runs |
 |---|---|---|
 | `trade` | the villager has a profession (not nitwit, not a child) | MCA `trade`, after the line |
-| `gift` | you hold something | MCA `gift`: MCA judges the held item as a gift, and promise/wish hooks apply |
+| `gift` | always (also while holding a grudge) | opens a gift window (`AiGiftMenu`). You pick items from your whole inventory; on closing, each stack is offered through MCA's gift command (MCA's rules, reactions, hearts, rings and bouquets), and anything not taken comes back |
 | `inventory` | family or friend | MCA `inventory`, to hand over a tool or take things |
 | `follow` / `stay` / `move` / `go_home` | adult, teen or family | MCA move states, `gohome` |
 | `armor` | adult or teen, family or friend | MCA `armor` |
@@ -221,6 +221,22 @@ While holding a grudge, a villager only does `move`, `go_home` and `stop_work`.
 The prompt tells the villager what you are holding, the tools it carries (and so which tasks it can
 do), what it carries and its current task with progress. So "how's it going?" gets a true answer,
 and "go chop" without an axe gets "I need an axe".
+
+**Errands** (`AiErrands`). This mod drives these with the villager parked on MCA's empty
+"prospecting" chore, and the player gets a boss bar:
+
+| `do` | Offered when | What happens |
+|---|---|---|
+| `guide` + place | a village building is known | walks to it; waits whenever the player falls 10 blocks behind; says "here we are" |
+| `wait_at` + place | as above | walks there, then MCA `STAY` |
+| `pick_up` | items lie within 14 blocks | collects them, comes back and hands them over |
+| `store` | a chest or barrel is near and the villager carries things | puts everything but tools, weapons and armour in it |
+| `fetch` + item + amount | a container is near | finds a container with the item, takes it, comes back and hands it over (or says none has it) |
+| `breed` + amount | animals near that the villager has food for | feeds them, credited to the player (default 4) |
+
+`guide`, `wait_at`, `pick_up` and `fetch` are for acquaintances and closer (adults and teens); the
+others for family and friends. Collected goods are never lost: if the villager cannot get back
+within a minute, it drops them where it stands.
 
 **Work** (`AiWork`):
 - `chop`, `harvest`, `hunt` and `fish` are MCA's own chores, assigned with MCA's command, using the

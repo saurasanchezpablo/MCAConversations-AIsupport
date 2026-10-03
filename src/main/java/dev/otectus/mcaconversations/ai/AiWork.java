@@ -164,6 +164,7 @@ final class AiWork {
             return false;
         }
         stop(villager.getUUID(), false);
+        AiErrands.stop(villager.getUUID());
         VillagerAttention.release(villager);
         if (!McaHandles.runInteraction(villager, player, chore.mcaCommand())) {
             return false;

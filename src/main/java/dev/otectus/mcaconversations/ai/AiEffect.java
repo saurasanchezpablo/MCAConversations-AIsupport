@@ -143,15 +143,21 @@ public sealed interface AiEffect permits AiEffect.DispositionNudge, AiEffect.Pro
      * @param chore  for {@link AiActionKind#WORK}
      * @param amount for WORK, how much to gather before coming back (0 = until told to stop);
      *               for GIVE, how many items
-     * @param item   for GIVE, which item (id), from the villager's own inventory
+     * @param item   for GIVE and FETCH, which item (id)
+     * @param place  for GUIDE and WAIT_AT, a place token the villager was shown
      */
-    record Action(AiActionKind kind, Optional<AiChore> chore, int amount, String item) implements AiEffect {
+    record Action(AiActionKind kind, Optional<AiChore> chore, int amount, String item, String place) implements AiEffect {
         public static final String TYPE = "action";
 
         public Action {
             chore = chore == null ? Optional.empty() : chore;
             amount = Math.max(0, Math.min(64, amount));
             item = item == null ? "" : item;
+            place = place == null ? "" : place;
+        }
+
+        public Action(AiActionKind kind, Optional<AiChore> chore, int amount, String item) {
+            this(kind, chore, amount, item, "");
         }
 
         @Override

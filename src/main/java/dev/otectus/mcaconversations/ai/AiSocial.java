@@ -191,8 +191,8 @@ final class AiSocial {
             }
         }
         Map<String, Place> places = places(level, villager, band, pair, day);
-        AiActionContext.Snapshot actions = AiActionContext.capture(villager, player, villagerName, playerName, band,
-                roles, grudge);
+        AiActionContext.Snapshot actions = AiActionContext.capture(level, villager, player, villagerName, playerName, band,
+                roles, grudge, places);
         sections.addAll(actions.sections());
 
         AiTurnFacts facts = new AiTurnFacts(band, hearts, romanceAllowed, !losses.isEmpty(), grudge, quests, topics,

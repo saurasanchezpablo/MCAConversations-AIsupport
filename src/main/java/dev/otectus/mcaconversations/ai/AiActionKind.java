@@ -22,7 +22,19 @@ public enum AiActionKind {
     WORK,
     STOP_WORK,
     /** Hand the player items from the villager's own inventory. */
-    GIVE;
+    GIVE,
+    /** Walk the player to a place in the village, waiting when they fall behind. */
+    GUIDE,
+    /** Go to a place in the village and stay there. */
+    WAIT_AT,
+    /** Pick up items lying on the ground nearby and bring them to the player. */
+    PICK_UP,
+    /** Put what the villager carries (not its tools) into the nearest chest. */
+    STORE,
+    /** Fetch an item from the nearest chest that has it and bring it to the player. */
+    FETCH,
+    /** Feed nearby animals with food the villager carries so they breed. */
+    BREED;
 
     public String key() {
         return name().toLowerCase(Locale.ROOT);

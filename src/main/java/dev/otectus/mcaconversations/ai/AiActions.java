@@ -27,21 +27,28 @@ final class AiActions {
     private AiActions() {
     }
 
-    static void apply(Entity villager, ServerPlayer player, String villagerName, List<AiEffect.Action> actions, long now) {
+    static void apply(Entity villager, ServerPlayer player, String villagerName, List<AiEffect.Action> actions,
+                      AiSocial.Turn turn, long now) {
         for (AiEffect.Action action : actions) {
             try {
-                apply(villager, player, villagerName, action, now);
+                apply(villager, player, villagerName, action, turn, now);
             } catch (Throwable t) {
                 McaConversations.LOGGER.debug("AI action {} failed; skipped", action.kind(), t);
             }
         }
     }
 
-    private static void apply(Entity villager, ServerPlayer player, String villagerName, AiEffect.Action action, long now) {
+    private static void apply(Entity villager, ServerPlayer player, String villagerName, AiEffect.Action action,
+                              AiSocial.Turn turn, long now) {
         switch (action.kind()) {
             case TRADE -> later(villager, player, "trade", now);
             case INVENTORY -> later(villager, player, "inventory", now);
-            case GIFT -> McaHandles.runInteraction(villager, player, "gift");
+            // The player chooses what to give, from their whole inventory, in the gift window.
+            case GIFT -> AiTasks.schedule(now + SCREEN_DELAY_TICKS, () -> {
+                if (villager.isAlive() && !player.hasDisconnected() && villager.distanceTo(player) <= 8) {
+                    AiGiftMenu.open(player, villager);
+                }
+            });
             case FOLLOW -> {
                 VillagerAttention.release(villager);
                 McaHandles.runInteraction(villager, player, "FOLLOW");
@@ -65,8 +72,10 @@ final class AiActions {
             });
             case STOP_WORK -> {
                 AiWork.stop(villager.getUUID(), true);
+                AiErrands.stop(villager.getUUID());
                 McaHandles.runInteraction(villager, player, "stopworking");
             }
+            case GUIDE, WAIT_AT, PICK_UP, STORE, FETCH, BREED -> AiErrands.start(villager, player, action, turn, villagerName, now);
             case GIVE -> give(villager, player, action.item(), Math.max(1, action.amount()));
         }
     }

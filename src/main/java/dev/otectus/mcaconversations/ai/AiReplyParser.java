@@ -263,12 +263,18 @@ public final class AiReplyParser {
                 if (kind.get() == AiActionKind.WORK && chore.isEmpty()) {
                     return Optional.empty(); // "go work" with no task named is not an order the game can follow
                 }
-                String item = kind.get() == AiActionKind.GIVE ? itemRef(json).filter(i -> !i.startsWith("#")).orElse("") : "";
-                if (kind.get() == AiActionKind.GIVE && item.isEmpty()) {
+                boolean needsItem = kind.get() == AiActionKind.GIVE || kind.get() == AiActionKind.FETCH;
+                String item = needsItem ? itemRef(json).filter(i -> !i.startsWith("#")).orElse("") : "";
+                if (needsItem && item.isEmpty()) {
                     return Optional.empty();
                 }
-                int amount = clampInt(json, "amount", kind.get() == AiActionKind.GIVE ? 1 : 0, 0, 64);
-                return Optional.of(new AiEffect.Action(kind.get(), chore, amount, item));
+                boolean needsPlace = kind.get() == AiActionKind.GUIDE || kind.get() == AiActionKind.WAIT_AT;
+                String place = needsPlace ? token(json, "place").orElse("") : "";
+                if (needsPlace && place.isEmpty()) {
+                    return Optional.empty();
+                }
+                int amount = clampInt(json, "amount", needsItem ? 1 : 0, 0, 64);
+                return Optional.of(new AiEffect.Action(kind.get(), chore, amount, item, place));
             }
             default -> {
                 // Unknown effect types are dropped: the model cannot reach anything not written here.
