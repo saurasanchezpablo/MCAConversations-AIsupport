@@ -16,12 +16,13 @@ import java.util.Optional;
  * @param memory     what the villager should remember, if anything
  * @param effects    the gameplay effects requested, already typed and bounded
  * @param interjection a nearby villager chiming in, if the model wrote one
+ * @param delivery   how the line should be voiced, if the model said
  * @param structured false when the reply was not valid structured output and only the line survived;
  *                   an unstructured reply never has effects
  */
 public record AiReply(String dialogue, String command, AiSentiment sentiment, double confidence,
                       AiEmotion emotion, Optional<AiMemoryNote> memory, List<AiEffect> effects,
-                      Optional<AiInterjection> interjection, boolean structured) {
+                      Optional<AiInterjection> interjection, Optional<AiDelivery> delivery, boolean structured) {
 
     public AiReply {
         command = command == null ? "" : command;
@@ -29,17 +30,30 @@ public record AiReply(String dialogue, String command, AiSentiment sentiment, do
         memory = memory == null ? Optional.empty() : memory;
         effects = effects == null ? List.of() : List.copyOf(effects);
         interjection = interjection == null ? Optional.empty() : interjection;
+        delivery = delivery == null ? Optional.empty() : delivery;
+    }
+
+    /** Without a voice delivery. */
+    public AiReply(String dialogue, String command, AiSentiment sentiment, double confidence, AiEmotion emotion,
+                   Optional<AiMemoryNote> memory, List<AiEffect> effects, Optional<AiInterjection> interjection,
+                   boolean structured) {
+        this(dialogue, command, sentiment, confidence, emotion, memory, effects, interjection, Optional.empty(), structured);
+    }
+
+    /** The delivery to voice this line with: the model's, or one derived from its emotion. */
+    public AiDelivery deliveryOrDefault() {
+        return delivery.orElseGet(() -> AiDelivery.from(emotion, sentiment));
     }
 
     /** As before the social layer: no interjection. */
     public AiReply(String dialogue, String command, AiSentiment sentiment, double confidence, AiEmotion emotion,
                    Optional<AiMemoryNote> memory, List<AiEffect> effects, boolean structured) {
-        this(dialogue, command, sentiment, confidence, emotion, memory, effects, Optional.empty(), structured);
+        this(dialogue, command, sentiment, confidence, emotion, memory, effects, Optional.empty(), Optional.empty(), structured);
     }
 
     /** A reply that is only a line: no judgement, no memory, no effects. */
     public static AiReply dialogueOnly(String dialogue) {
         return new AiReply(dialogue, "", AiSentiment.NEUTRAL, 0, AiEmotion.NEUTRAL, Optional.empty(),
-                List.of(), Optional.empty(), false);
+                List.of(), Optional.empty(), Optional.empty(), false);
     }
 }

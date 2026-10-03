@@ -178,7 +178,7 @@ final class AiSocialEffects {
             String speakerName = McaCompat.getVillagerName(speaker).orElse(line.speaker());
             // A beat after the villager's own reply, the way someone chimes in.
             AiLines.sayLater(speaker, player, net.minecraft.network.chat.Component.literal(line.message()), speakerName,
-                    now, INTERJECTION_DELAY_TICKS);
+                    now, INTERJECTION_DELAY_TICKS, AiEmotion.NEUTRAL, dev.otectus.mcaconversations.voice.VoiceIntent.STATEMENT);
             // The bystander now remembers having been part of it, a little.
             data.edit(speakerId, playerId).remember(new AiMemoryNote("I joined in when " + playerName + " was talking with "
                     + villagerName + ".", AiImportance.LOW), reply.sentiment(), day, McaConversationsConfig.aiMemoriesPerPair());

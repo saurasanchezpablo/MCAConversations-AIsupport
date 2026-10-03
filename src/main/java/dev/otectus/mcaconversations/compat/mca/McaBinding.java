@@ -508,6 +508,13 @@ public final class McaBinding {
     /** {@code List<String>} of structure ids MCA's own villagers spread rumours about. */
     public static final Member CONFIG_STRUCTURES_IN_RUMORS = getter(C_CONFIG, "structuresInRumors");
 
+    // Voice (docs/AI-CONVERSATIONS.md, "Voice"): who a villager sounds like. Present on 7.7.33 and 7.7.36-beta.3.
+    public static final Member GET_GENETICS = virtual(C_VILLAGER, "getGenetics", Object.class, 0);
+    public static final Member GENETICS_GET_GENDER = virtual("entity.ai.Genetics", "getGender", Object.class, 0);
+    /** Messenger defaults: babies and zombified villagers never speak aloud. */
+    public static final Member IS_TOO_YOUNG_TO_SPEAK = virtual(C_VILLAGER, "isToYoungToSpeak", boolean.class, 0);
+    public static final Member IS_SPEECH_IMPAIRED = virtual(C_VILLAGER, "isSpeechImpaired", boolean.class, 0);
+
     /** Every member above, in declaration order. The single source of truth for what MCA must provide. */
     public static final List<Member> MANIFEST = List.of(
             VILLAGER_CLASS, VILLAGER_LIKE_CLASS, QUESTION_RESPONSE_CLASS, DIALOGUE_RESPONSE_CLASS,
@@ -548,7 +555,8 @@ public final class McaBinding {
             TRIGGER_COMMANDS, TRIGGER_FIND_COMMAND, TRIGGER_COMMAND, TRIGGER_DESCRIPTION, TRIGGER_IS_ACTIVE,
             TRIGGER_CALL,
             VILLAGER_CONVERSATION_MANAGER, CONVERSATION_ADD_MESSAGE, IS_PROMISED_TO, IS_ENGAGED_WITH,
-            BUILDING_GET_POS0, BUILDING_GET_POS1, BUILDING_IS_COMPLETE, CONFIG_STRUCTURES_IN_RUMORS);
+            BUILDING_GET_POS0, BUILDING_GET_POS1, BUILDING_IS_COMPLETE, CONFIG_STRUCTURES_IN_RUMORS,
+            GET_GENETICS, GENETICS_GET_GENDER, IS_TOO_YOUNG_TO_SPEAK, IS_SPEECH_IMPAIRED);
 
     // ---------------------------------------------------------------------------------------------
     // Resolution

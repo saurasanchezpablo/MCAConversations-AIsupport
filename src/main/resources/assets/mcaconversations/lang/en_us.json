@@ -718,6 +718,7 @@
   "mcaconversations.townstead.need.none": "well enough",
   "mcaconversations.townstead.need.thirst": "thirsty",
   "mcaconversations.townstead.weekday": "day %1$s of the week",
+  "mcaconversations.voice.key_rejected": "Villager voice: the %1$s API key was rejected. Check it in mcaconversations-client.toml.",
   "mcaconversations.weather.clear": "the clear sky",
   "mcaconversations.weather.rain": "the rain",
   "mcaconversations.weather.storm": "the storm"

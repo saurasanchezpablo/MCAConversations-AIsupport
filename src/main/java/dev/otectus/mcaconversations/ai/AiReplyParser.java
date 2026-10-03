@@ -119,6 +119,7 @@ public final class AiReplyParser {
         AiEmotion emotion = string(json, "emotion").flatMap(AiEmotion::byKey).orElse(AiEmotion.NEUTRAL);
         Optional<AiMemoryNote> memory = memory(json.get("memory"));
         Optional<AiInterjection> interjection = interjection(json.get("interjection"));
+        Optional<AiDelivery> delivery = delivery(json.get("delivery"));
 
         List<AiEffect> effects = new ArrayList<>();
         if (json.has("effects") && json.get("effects").isJsonArray()) {
@@ -130,7 +131,7 @@ public final class AiReplyParser {
             }
         }
         return Optional.of(new AiReply(dialogue, command, sentiment, confidence, emotion, memory, effects,
-                interjection, true));
+                interjection, delivery, true));
     }
 
     private static Optional<AiMemoryNote> memory(JsonElement element) {
@@ -152,6 +153,30 @@ public final class AiReplyParser {
         }
         String clean = AiText.clean(text, AiText.MAX_MEMORY);
         return clean.isEmpty() ? Optional.empty() : Optional.of(new AiMemoryNote(clean, importance, secret));
+    }
+
+    /** The voice delivery; any field may be missing or wrong and falls back on its own. */
+    static Optional<AiDelivery> delivery(JsonElement element) {
+        if (element == null || !element.isJsonObject()) {
+            return Optional.empty();
+        }
+        JsonObject object = element.getAsJsonObject();
+        dev.otectus.mcaconversations.voice.VoiceIntent intent = string(object, "intent")
+                .flatMap(dev.otectus.mcaconversations.voice.VoiceIntent::byKey)
+                .orElse(dev.otectus.mcaconversations.voice.VoiceIntent.STATEMENT);
+        String tone = AiText.clean(string(object, "tone").orElse(""), 80);
+        dev.otectus.mcaconversations.voice.VoiceDirection.Pace pace = switch (string(object, "pace").orElse("").trim().toLowerCase(Locale.ROOT)) {
+            case "slow" -> dev.otectus.mcaconversations.voice.VoiceDirection.Pace.SLOW;
+            case "fast", "quick" -> dev.otectus.mcaconversations.voice.VoiceDirection.Pace.FAST;
+            default -> dev.otectus.mcaconversations.voice.VoiceDirection.Pace.NORMAL;
+        };
+        dev.otectus.mcaconversations.voice.VoiceDirection.Volume volume = switch (string(object, "volume").orElse("").trim().toLowerCase(Locale.ROOT)) {
+            case "whisper", "quiet", "soft" -> dev.otectus.mcaconversations.voice.VoiceDirection.Volume.WHISPER;
+            case "raised", "loud", "shout" -> dev.otectus.mcaconversations.voice.VoiceDirection.Volume.RAISED;
+            default -> dev.otectus.mcaconversations.voice.VoiceDirection.Volume.NORMAL;
+        };
+        float intensity = number(object, "intensity").map(Double::floatValue).orElse(0.5f);
+        return Optional.of(new AiDelivery(intent, tone, pace, Math.max(0f, Math.min(1f, intensity)), volume));
     }
 
     private static Optional<AiInterjection> interjection(JsonElement element) {

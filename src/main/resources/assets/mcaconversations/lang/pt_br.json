@@ -718,6 +718,7 @@
   "mcaconversations.townstead.need.none": "bem o bastante",
   "mcaconversations.townstead.need.thirst": "com sede",
   "mcaconversations.townstead.weekday": "dia %1$s da semana",
+  "mcaconversations.voice.key_rejected": "Voz dos aldeões: a chave da API %1$s foi recusada. Verifique em mcaconversations-client.toml.",
   "mcaconversations.weather.clear": "o céu limpo",
   "mcaconversations.weather.rain": "a chuva",
   "mcaconversations.weather.storm": "a tempestade"

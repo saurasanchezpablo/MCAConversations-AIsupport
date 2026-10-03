@@ -1353,6 +1353,15 @@ public final class McaConversationsConfig {
     }
 
     public static final class Client {
+        public final ModConfigSpec.EnumValue<dev.otectus.mcaconversations.voice.VoiceProvider> voiceProvider;
+        public final ModConfigSpec.ConfigValue<String> voiceOpenAiApiKey;
+        public final ModConfigSpec.ConfigValue<String> voiceOpenAiEndpoint;
+        public final ModConfigSpec.ConfigValue<String> voiceOpenAiModel;
+        public final ModConfigSpec.ConfigValue<String> voiceGeminiApiKey;
+        public final ModConfigSpec.ConfigValue<String> voiceGeminiModel;
+        public final ModConfigSpec.BooleanValue voiceScriptedLines;
+        public final ModConfigSpec.IntValue voiceMaxCharacters;
+        public final ModConfigSpec.BooleanValue voiceDebug;
         public final ModConfigSpec.BooleanValue numberedResponses;
         public final ModConfigSpec.EnumValue<DialogueMenuStyle> dialogueMenuStyle;
         public final ModConfigSpec.BooleanValue numericResponseShortcuts;
@@ -1421,6 +1430,34 @@ public final class McaConversationsConfig {
                     "actually received, is cleared on disconnect and world change, and is never written",
                     "to disk or exported. 0 disables the drawer entirely.")
                     .defineInRange("deliveredHistoryEntries", 64, 0, 256);
+            b.pop();
+
+            b.push("voice");
+            b.comment("How villagers sound. Read only on this client; API keys never leave this file.");
+            voiceProvider = b.comment(
+                    "Speech engine for villager lines. MCA keeps MCA's own TTS exactly as configured with /mca tts.",
+                    "OPENAI and GEMINI voice every line with acting direction: the villager's emotion, what the",
+                    "line is for, their mood, grief, a grudge or romance, in the language of the line (Spanish and",
+                    "English with native accents). They need an API key below or in OPENAI_API_KEY / GEMINI_API_KEY.")
+                    .defineEnum("provider", dev.otectus.mcaconversations.voice.VoiceProvider.MCA);
+            voiceOpenAiApiKey = b.comment("OpenAI API key (or set the OPENAI_API_KEY environment variable).")
+                    .define("openaiApiKey", "");
+            voiceOpenAiEndpoint = b.comment("OpenAI-compatible speech endpoint.")
+                    .define("openaiEndpoint", "https://api.openai.com/v1/audio/speech");
+            voiceOpenAiModel = b.comment("OpenAI speech model; it must accept 'instructions' for the acting to work.")
+                    .define("openaiModel", "gpt-4o-mini-tts");
+            voiceGeminiApiKey = b.comment("Gemini API key (or set GEMINI_API_KEY / GOOGLE_API_KEY).")
+                    .define("geminiApiKey", "");
+            voiceGeminiModel = b.comment("Gemini speech model.")
+                    .define("geminiModel", "gemini-2.5-flash-preview-tts");
+            voiceScriptedLines = b.comment(
+                    "Also voice villagers' scripted lines (menus, greetings, gossip) with the chosen engine, in the",
+                    "game's language and with a delivery from their mood. False voices only AI-conversation lines.")
+                    .define("voiceScriptedLines", true);
+            voiceMaxCharacters = b.comment("Longest line sent to the engine; longer lines are not voiced (cost guard).")
+                    .defineInRange("maxCharacters", 500, 50, 2000);
+            voiceDebug = b.comment("Log each voiced line: engine, voice, the acting brief and timings. Never logs keys.")
+                    .define("debugVoice", false);
             b.pop();
         }
     }

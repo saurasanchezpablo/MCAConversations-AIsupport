@@ -119,7 +119,8 @@ final class AiPromises {
             edit.remember(new AiMemoryNote(player.getName().getString() + " remembered I wanted "
                     + AiContextFormat.words(w.item().replace("#", "")) + " and brought it to me.", AiImportance.HIGH),
                     AiSentiment.STRONGLY_POSITIVE, day, dev.otectus.mcaconversations.McaConversationsConfig.aiMemoriesPerPair());
-            AiLines.say(villager, player, AiLines.variant("wish_fulfilled"), name);
+            AiLines.say(villager, player, AiLines.variant("wish_fulfilled"), name, AiEmotion.GRATEFUL,
+                    dev.otectus.mcaconversations.voice.VoiceIntent.THANK);
         });
     }
 
@@ -136,7 +137,8 @@ final class AiPromises {
             AiReputationLink.promise(player, villager, promise, AiReputationLink.PROMISE_KEPT, "kept");
             if (speak) {
                 String name = McaCompat.getVillagerName(villager).orElse(villager.getName().getString());
-                AiLines.say(villager, player, AiLines.variant("promise_kept"), name);
+                AiLines.say(villager, player, AiLines.variant("promise_kept"), name, AiEmotion.GRATEFUL,
+                        dev.otectus.mcaconversations.voice.VoiceIntent.THANK);
             }
         } catch (Throwable t) {
             McaConversations.LOGGER.debug("AI promise-kept effects failed", t);

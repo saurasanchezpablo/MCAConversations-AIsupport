@@ -184,7 +184,7 @@ public final class AiConversations {
 
             AiPromptInput input = new AiPromptInput(settings.model(), settings.systemPrompt(), settings.inHouse(),
                     settings.includeSessionInfo(), settings.longTermMemory(), settings.sharedLongTermMemory(),
-                    settings.language(), McaConversationsConfig.aiRequestJsonMode(),
+                    replyLanguage(player, settings.language()), McaConversationsConfig.aiRequestJsonMode(),
                     player.serverLevel().getSeed(), playerId, villagerId, playerName, villagerName,
                     McaChatAi.describeVillager(villager, player, playerName, villagerName),
                     McaChatAi.editedContext(villager, player),
@@ -251,6 +251,8 @@ public final class AiConversations {
                     session, offered, now, day);
             AiSocialEffects.Applied social = AiSocialEffects.apply(server, villager, player, villagerName, plan, reply,
                     turn, now, day);
+            // How the line should sound, sent ahead of MCA delivering it.
+            AiVoice.direct(player, villager, reply.dialogue(), reply.emotion(), reply.deliveryOrDefault(), turn.facts());
             session.recordExchange(message, reply.dialogue());
             if (McaConversationsConfig.debugAi()) {
                 McaConversations.LOGGER.info("[ai] reply villager={} player={} structured={} impact={} confidence={} "
@@ -271,6 +273,12 @@ public final class AiConversations {
         } finally {
             SESSIONS.finish(villagerId, playerId, now);
         }
+    }
+
+    /** The language to reply in: the player's game language when known, else MCA's hint. */
+    private static String replyLanguage(ServerPlayer player, String mcaLanguage) {
+        String byClient = AiVoice.languageName(AiVoice.clientLanguage(player));
+        return byClient != null ? byClient : mcaLanguage;
     }
 
     /**

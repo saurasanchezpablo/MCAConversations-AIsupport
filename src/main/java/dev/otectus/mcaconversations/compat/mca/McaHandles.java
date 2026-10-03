@@ -183,6 +183,10 @@ public final class McaHandles {
     private static final MethodHandle H_BUILDING_POS1 = R.handle(McaBinding.BUILDING_GET_POS1);
     private static final MethodHandle H_BUILDING_COMPLETE = R.handle(McaBinding.BUILDING_IS_COMPLETE);
     private static final MethodHandle H_STRUCTURES_IN_RUMORS = R.handle(McaBinding.CONFIG_STRUCTURES_IN_RUMORS);
+    private static final MethodHandle H_GENETICS = R.handle(McaBinding.GET_GENETICS);
+    private static final MethodHandle H_GENDER = R.handle(McaBinding.GENETICS_GET_GENDER);
+    private static final MethodHandle H_TOO_YOUNG = R.handle(McaBinding.IS_TOO_YOUNG_TO_SPEAK);
+    private static final MethodHandle H_SPEECH_IMPAIRED = R.handle(McaBinding.IS_SPEECH_IMPAIRED);
 
     // ==============================================================================================
     // Type tests
@@ -664,6 +668,25 @@ public final class McaHandles {
             // A reshaped building map degrades to "knows no buildings".
         }
         return out;
+    }
+
+    /** The villager's gender as MCA stores it, lower case ({@code male}, {@code female}, ...), or empty. Either side. */
+    public static String gender(Object villager) {
+        Object genetics = isVillager(villager) ? ref(H_GENETICS, villager) : null;
+        Object gender = ref(H_GENDER, genetics);
+        return gender instanceof Enum<?> e ? e.name().toLowerCase(Locale.ROOT) : "";
+    }
+
+    /** True for a villager MCA never lets speak aloud (a baby, a zombified villager). Either side. */
+    public static boolean silentVoice(Object villager) {
+        if (!isVillager(villager)) {
+            return true;
+        }
+        try {
+            return (boolean) H_TOO_YOUNG.invoke(villager) || (boolean) H_SPEECH_IMPAIRED.invoke(villager);
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     /** The structure ids MCA's villagers spread rumours about (MCA config), or empty. */

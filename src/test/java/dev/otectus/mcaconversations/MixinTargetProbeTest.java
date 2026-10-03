@@ -118,6 +118,8 @@ class MixinTargetProbeTest {
         // silent no-op if it is renamed, which is exactly what this entry turns into a build failure.
         INJECTION_POINTS.put("McaInteractionCloseMixin", List.of("handleServer"));
         INJECTION_POINTS.put("BreedableRelationshipMixin", List.of("acceptGift"));
+        // MCA's client TTS entry point; the acting voice replaces MCA's speech for a line here.
+        INJECTION_POINTS.put("SpeechManagerMixin", List.of("onChatMessage"));
         INJECTION_POINTS.put("MCAClientMixin", List.of("useExpandedPersonalityTranslations"));
         // VillagerMessageMixin is deliberately absent on 1.21.1: VillagerMessage is a record of
         // Components and the JSON re-parse bug it worked around no longer exists (PORT_STATUS.md,

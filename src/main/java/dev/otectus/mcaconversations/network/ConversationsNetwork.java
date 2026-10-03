@@ -35,6 +35,20 @@ public final class ConversationsNetwork {
     public static final String PROTOCOL = NetworkProtocol.version();
 
     private static volatile ChoicePacketSink sink = ChoicePacketSink.NONE;
+    private static volatile VoiceSink voiceSink = VoiceSink.NONE;
+
+    public static void installVoiceSink(VoiceSink incoming) {
+        voiceSink = incoming == null ? VoiceSink.NONE : incoming;
+    }
+
+    /** Sends a voice direction to one player; never throws. */
+    public static void sendVoice(net.minecraft.server.level.ServerPlayer player, VoiceDirectionS2C payload) {
+        try {
+            net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player, payload);
+        } catch (Throwable t) {
+            McaConversations.LOGGER.debug("voice direction send failed; ignoring", t);
+        }
+    }
 
     public static void installSink(ChoicePacketSink incoming) {
         sink = incoming == null ? ChoicePacketSink.NONE : incoming;
@@ -79,6 +93,9 @@ public final class ConversationsNetwork {
                 ConversationsNetwork::handlePresence);
         registrar.playToServer(ConversationCloseC2S.TYPE, ConversationCloseC2S.STREAM_CODEC,
                 ConversationsNetwork::handleClose);
+        // Protocol 5: how a villager's line should sound, for the client's speech engine.
+        registrar.playToClient(VoiceDirectionS2C.TYPE, VoiceDirectionS2C.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> voiceSink.accept(payload.direction())));
     }
 
     private static void handleOpened(ConversationOpenedS2C payload, IPayloadContext context) {

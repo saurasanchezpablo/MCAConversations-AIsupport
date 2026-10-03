@@ -25,6 +25,9 @@ public final class ConversationsClient {
 
     @SubscribeEvent
     public static void onClientSetup(FMLClientSetupEvent event) {
-        event.enqueueWork(() -> ConversationsNetwork.installSink(ClientChoiceMessages.INSTANCE));
+        event.enqueueWork(() -> {
+            ConversationsNetwork.installSink(ClientChoiceMessages.INSTANCE);
+            ConversationsNetwork.installVoiceSink(dev.otectus.mcaconversations.client.voice.VillagerVoices.INSTANCE::onDirection);
+        });
     }
 }

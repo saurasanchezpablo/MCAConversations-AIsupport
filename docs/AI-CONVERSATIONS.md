@@ -150,6 +150,56 @@ What makes it read as a person:
 - The villager carries their **own state**: grief, grudges, promises owed, a wish, views of neighbours, who is listening, and what the village says.
 - Extra lines (directions, thanks, interjections) are spoken through **MCA's own message queue**, after the reply, so they sound like the villager.
 
+## Voice (acting TTS)
+
+Villagers speak their lines aloud with acting: the emotion, what the line is for, their mood, grief,
+a grudge or romance, in the language of the line with a native accent.
+
+**Flow.**
+1. **The model.** Each AI reply carries a `delivery`: intent (thank, tease, warn, confess, refuse,
+   flirt…), tone, pace, intensity and volume. Without one, it is derived from the emotion.
+2. **The server.** `AiVoice` builds a `VoiceDirection` with the villager's state (gender, age,
+   personality, mood, mourning, romance with this player, a grudge) and the player's game language.
+   It sends it as `VoiceDirectionS2C` (protocol 5) to every player within 32 blocks, ahead of MCA
+   delivering the line.
+3. **The client.** A mixin on MCA's `SpeechManager.onChatMessage`, the one place every villager line
+   reaches MCA's TTS, hands the line to `VillagerVoices`:
+   - it matches the direction (exact text first, else "next line");
+   - `VoiceScript` turns it into an actor's brief;
+   - it synthesises with the configured engine;
+   - it plays the PCM from the villager's position through the Voice volume slider (`PcmSoundInstance`,
+     streamed straight to Minecraft's sound engine).
+
+   MCA then stays silent, so a line is never spoken twice.
+
+**Engines** (`mcaconversations-client.toml`, section `[voice]`; keys stay on the client):
+
+| `provider` | Engine | Acting |
+|---|---|---|
+| `MCA` (default) | MCA's own TTS (`/mca tts`) | none, unchanged |
+| `OPENAI` | `gpt-4o-mini-tts` via `/v1/audio/speech`, 24 kHz PCM | `instructions` = the brief |
+| `GEMINI` | `gemini-2.5-flash-preview-tts`, AUDIO modality | brief prepended as a style prompt |
+
+Keys: `openaiApiKey` / `geminiApiKey`, or the `OPENAI_API_KEY` / `GEMINI_API_KEY` environment variables.
+Each villager keeps one voice that fits their gender and age (`VoiceCatalog`, chosen from the UUID).
+
+**Language.**
+- AI replies are written in the player's game language: the server reads the client language and
+  tells the model.
+- The brief tells the engine to speak each line *in the language it is written in*, with the accent
+  the game language implies:
+  - `es_es`: Spain; other `es_*`: Latin America;
+  - `en_us`: American; `en_gb`: British.
+- So a Spanish line is never read by an English voice. Scripted lines are voiced in whatever language
+  they are shown in; this mod ships en_us and pt_br, so a Spanish client hears MCA's own Spanish lines
+  in Spanish and this mod's untranslated ones in English.
+
+**Cost guards.**
+- Lines over `maxCharacters` are skipped, as are lines from villagers more than 32 blocks away, babies
+  and zombified villagers.
+- The last 48 rendered lines are cached in memory.
+- `voiceScriptedLines = false` voices only AI conversations.
+
 ## Memory and persistence
 
 - **Long-term** (`data/mcaconversations_ai_memory.dat`, overworld `SavedData`, keyed by villager UUID

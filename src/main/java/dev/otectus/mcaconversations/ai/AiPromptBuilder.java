@@ -91,7 +91,8 @@ public final class AiPromptBuilder {
 
         appendSchema(sb, in);
         if (in.language() != null && !in.language().isBlank()) {
-            sb.append("Match the language of the player, and use ").append(in.language()).append(" when unsure.\n");
+            sb.append("The player's game is in ").append(in.language()).append(". Reply in ").append(in.language())
+                    .append(" unless the player clearly writes in another language; then match theirs.\n");
         } else {
             sb.append("Match the language of the player.\n");
         }
@@ -113,6 +114,9 @@ public final class AiPromptBuilder {
         sb.append(" \"memory\": null or {\"text\": \"one short sentence, from ").append(villager)
                 .append("'s point of view, about ").append(player).append("\", \"importance\": \"low|medium|high\"},\n");
         sb.append(" \"emotion\" may also be \"smitten\" only where romance is possible,\n");
+        sb.append(" \"delivery\": {\"intent\": \"statement|question|reassure|comfort|warn|complain|tease|flirt|confess|")
+                .append("refuse|apologize|thank|greet|farewell|exclaim|threaten\", \"tone\": \"a few words on how it is said\", ")
+                .append("\"pace\": \"slow|normal|fast\", \"intensity\": 0.0-1.0, \"volume\": \"whisper|normal|raised\"},\n");
         sb.append(" \"effects\": [ ...zero to three of the effects below... ]");
         if (in.bystanders()) {
             sb.append(",\n \"interjection\": null or {\"speaker\": \"exact name of someone close enough to hear\", ")
