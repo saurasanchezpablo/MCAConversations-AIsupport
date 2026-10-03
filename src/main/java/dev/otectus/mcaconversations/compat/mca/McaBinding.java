@@ -236,6 +236,7 @@ public final class McaBinding {
     private static final String C_TRIGGER_INFOS = "entity.ai.chatAI.TriggerCommandInfos";
     private static final String C_TRIGGER_INFO = "entity.ai.chatAI.TriggerCommandInfo";
     private static final String C_AI_MODULES = "entity.ai.chatAI.modules.";
+    private static final String C_CONVERSATION_MANAGER = "entity.ai.ConversationManager";
 
     // Classes ---------------------------------------------------------------------------------------
     public static final Member VILLAGER_CLASS = cls(C_VILLAGER);
@@ -492,6 +493,21 @@ public final class McaBinding {
     public static final Member TRIGGER_IS_ACTIVE = getter(C_TRIGGER_INFO, "isActive");
     public static final Member TRIGGER_CALL = getter(C_TRIGGER_INFO, "call");
 
+    // AI conversations, social layer (docs/AI-CONVERSATIONS.md). Verified present on all eight MCA builds
+    // this mod supports across both loaders (7.6.20 .. 7.7.1-beta.2 Forge, 7.7.33 / 7.7.36-beta.3 NeoForge).
+    /** The villager's own message queue: lines added here are walked over and spoken in MCA's chat style. */
+    public static final Member VILLAGER_CONVERSATION_MANAGER = getter(C_VILLAGER, "conversationManager");
+    /** {@code addMessage(Entity receiver, MutableComponent)}; arity separates it from {@code addMessage(Message)}. */
+    public static final Member CONVERSATION_ADD_MESSAGE = virtual(C_CONVERSATION_MANAGER, "addMessage", void.class, 2);
+    public static final Member IS_PROMISED_TO = virtual(C_RELATIONSHIP, "isPromisedTo", boolean.class, 1);
+    public static final Member IS_ENGAGED_WITH = virtual(C_RELATIONSHIP, "isEngagedWith", boolean.class, 1);
+    /** Building corners; {@code getCenter} is not a stable name across builds, the corners are. */
+    public static final Member BUILDING_GET_POS0 = virtual(C_BUILDING, "getPos0", Object.class, 0);
+    public static final Member BUILDING_GET_POS1 = virtual(C_BUILDING, "getPos1", Object.class, 0);
+    public static final Member BUILDING_IS_COMPLETE = virtual(C_BUILDING, "isComplete", boolean.class, 0);
+    /** {@code List<String>} of structure ids MCA's own villagers spread rumours about. */
+    public static final Member CONFIG_STRUCTURES_IN_RUMORS = getter(C_CONFIG, "structuresInRumors");
+
     /** Every member above, in declaration order. The single source of truth for what MCA must provide. */
     public static final List<Member> MANIFEST = List.of(
             VILLAGER_CLASS, VILLAGER_LIKE_CLASS, QUESTION_RESPONSE_CLASS, DIALOGUE_RESPONSE_CLASS,
@@ -530,7 +546,9 @@ public final class McaBinding {
             CHAT_AI_PERSONALITY_MODULE, CHAT_AI_TRAITS_MODULE, CHAT_AI_RELATION_MODULE, CHAT_AI_VILLAGE_MODULE,
             CHAT_AI_ENVIRONMENT_MODULE, CHAT_AI_PLAYER_MODULE, CHAT_AI_APPEND_PROMPTS, VILLAGE_FIND_NEAREST,
             TRIGGER_COMMANDS, TRIGGER_FIND_COMMAND, TRIGGER_COMMAND, TRIGGER_DESCRIPTION, TRIGGER_IS_ACTIVE,
-            TRIGGER_CALL);
+            TRIGGER_CALL,
+            VILLAGER_CONVERSATION_MANAGER, CONVERSATION_ADD_MESSAGE, IS_PROMISED_TO, IS_ENGAGED_WITH,
+            BUILDING_GET_POS0, BUILDING_GET_POS1, BUILDING_IS_COMPLETE, CONFIG_STRUCTURES_IN_RUMORS);
 
     // ---------------------------------------------------------------------------------------------
     // Resolution

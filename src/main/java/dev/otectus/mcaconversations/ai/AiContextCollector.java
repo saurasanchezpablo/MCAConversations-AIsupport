@@ -87,7 +87,8 @@ public final class AiContextCollector {
                 .ifPresent(v -> lines.add("Promises due: " + AiContextFormat.list(v)));
         if (Dispositions.enabled()) {
             List<String> feelings = new ArrayList<>();
-            for (DispositionAxis axis : AiReplyParser.NUDGEABLE_AXES) {
+            for (DispositionAxis axis : List.of(DispositionAxis.TRUST, DispositionAxis.RESPECT,
+                    DispositionAxis.WARMTH, DispositionAxis.TENSION)) {
                 feelings.add(axis.key() + " " + AiContextFormat.dispositionBand(axis, Dispositions.axis(villager, player, axis)));
             }
             lines.add("Feelings toward " + playerName + ": " + String.join(", ", feelings));

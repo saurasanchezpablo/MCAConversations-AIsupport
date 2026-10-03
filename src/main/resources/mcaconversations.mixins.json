@@ -13,7 +13,8 @@
     "NetworkHandlerMixin",
     "OpenAIChatAIMixin",
     "PlayerLegacyDataMixin",
-    "QuestionMixin"
+    "QuestionMixin",
+    "VillagerTradeMixin"
   ],
   "client": [
     "client.ChatScreenChoiceMixin",

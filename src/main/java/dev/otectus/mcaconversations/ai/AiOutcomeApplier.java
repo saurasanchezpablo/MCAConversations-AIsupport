@@ -1,8 +1,6 @@
 package dev.otectus.mcaconversations.ai;
 
 import dev.otectus.mcaconversations.McaConversations;
-import dev.otectus.mcaconversations.McaConversationsConfig;
-import dev.otectus.mcaconversations.compat.McaCompat;
 import dev.otectus.mcaconversations.compat.mca.McaChatAi;
 import dev.otectus.mcaconversations.conversation.ConversationOutcomes;
 import dev.otectus.mcaconversations.conversation.ConversationSession;
@@ -10,18 +8,13 @@ import dev.otectus.mcaconversations.conversation.DepthClass;
 import dev.otectus.mcaconversations.conversation.Relationships;
 import dev.otectus.mcaconversations.disposition.DispositionApply;
 import dev.otectus.mcaconversations.disposition.Dispositions;
-import dev.otectus.mcaconversations.progress.AffectionApply;
-import dev.otectus.mcaconversations.progress.AffectionContext;
-import dev.otectus.mcaconversations.progress.AffectionMath;
 import dev.otectus.mcaconversations.progress.AffectionOutcome;
-import dev.otectus.mcaconversations.progress.ProgressSavedData;
 import dev.otectus.mcaconversations.progress.ReplayPolicy;
 import dev.otectus.mcaconversations.state.StateTracker;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -59,30 +52,14 @@ final class AiOutcomeApplier {
         int measured = 0;
         AffectionOutcome.Reason reason = AffectionOutcome.Reason.ZERO;
         if (plan.authoredHearts() != 0) {
-            try {
-                AffectionApply directive = new AffectionApply(plan.decision(),
-                        AffectionMath.clampAuthored(plan.authoredHearts()), Optional.of(BUDGET), ReplayPolicy.DAILY_REPEAT);
-                AffectionContext context = new AffectionContext(BUDGET,
-                        session.positiveApplied(), session.negativeApplied(),
-                        McaConversationsConfig.conversationDailyPositiveCap(),
-                        McaConversationsConfig.conversationDailyNegativeCap(),
-                        McaConversationsConfig.strongerNegativeOutcomes(),
-                        McaConversationsConfig.conversationHeartMultiplier(),
-                        // Unique per turn: the store's idempotency guard refuses a replayed transaction.
-                        plan.decision() + "@" + now + "#" + session.nextSerial(),
-                        now);
-                AffectionOutcome outcome = ProgressSavedData.get(server)
-                        .applyAffection(villager.getUUID(), player.getUUID(), directive, context);
-                reason = outcome.reason();
-                granted = outcome.granted();
-                if (granted != 0) {
-                    measured = McaCompat.rewardHearts(villager, player, granted);
-                    session.recordApplied(granted);
-                    ConversationOutcomes.markHeartChangeNow(villager, measured);
-                }
-            } catch (Throwable t) {
-                McaConversations.LOGGER.debug("AI heart change failed; no hearts moved", t);
-            }
+            // Unique per turn: the store's idempotency guard refuses a replayed transaction.
+            AiHearts.Grant grant = AiHearts.grant(server, villager, player, plan.decision(), plan.authoredHearts(),
+                    BUDGET, ReplayPolicy.DAILY_REPEAT, session.positiveApplied(), session.negativeApplied(),
+                    plan.decision() + "@" + now + "#" + session.nextSerial(), now);
+            granted = grant.granted();
+            measured = grant.measured();
+            reason = grant.reason();
+            session.recordApplied(granted);
         }
 
         boolean stateLeft = false;

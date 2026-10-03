@@ -91,13 +91,12 @@ class AiReplyParserTest {
         AiReply reply = AiReplyParser.parse("""
                 {"message": "Fine.", "effects": [
                   {"type": "give_item", "item": "minecraft:diamond", "count": 64},
-                  {"type": "disposition", "axis": "attraction", "direction": "up"},
                   {"type": "disposition", "axis": "familiarity", "direction": "up"},
                   {"type": "disposition", "axis": "tension", "direction": "sideways"},
-                  {"type": "disposition", "axis": "respect", "direction": -5},
+                  {"type": "launch_fireworks"},
                   {"type": "disposition", "axis": "warmth", "direction": "up"}]}
                 """).orElseThrow();
-        // Only the first MAX_EFFECTS entries are looked at, and none of those three is legal.
+        // Only the first MAX_EFFECTS entries are looked at, and none of those four is legal.
         assertTrue(reply.effects().isEmpty());
 
         AiReply legal = AiReplyParser.parse("{\"message\": \"Fine.\", \"effects\": ["

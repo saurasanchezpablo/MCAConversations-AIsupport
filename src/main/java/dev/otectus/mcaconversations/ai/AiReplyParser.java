@@ -29,16 +29,29 @@ import java.util.regex.Pattern;
 public final class AiReplyParser {
 
     /** At most this many requested effects are even looked at; the rest are ignored. */
-    public static final int MAX_EFFECTS = 3;
+    public static final int MAX_EFFECTS = 4;
+    /** Longest neighbour name, quest id, topic or place token accepted. */
+    static final int MAX_TOKEN = 64;
+    /** Bounds the game puts on promises and wishes, whatever the model asks. */
+    /** MCA hands over one item per gift, so a promise of many items means many gifts: keep it human-sized. */
+    static final int MAX_PROMISE_COUNT = 8;
+    static final int MAX_PROMISE_DAYS = 7;
+    static final int MAX_WISH_DAYS = 10;
+    /** Opinion axes a conversation may move between neighbours (SocialOpinionRecord's vocabulary). */
+    static final Set<String> OPINION_AXES = Set.of("warmth", "trust", "respect");
 
     /**
-     * The axes a conversation may nudge. ATTRACTION is left out (romance has its own gated path) and
-     * FAMILIARITY is earned by time spent together, not granted by a judgement.
+     * The axes a reply may name. FAMILIARITY is earned by time spent together, never granted by a
+     * judgement. ATTRACTION parses, but {@link AiOutcomePlan} drops it unless romance is allowed.
      */
-    static final Set<DispositionAxis> NUDGEABLE_AXES =
-            EnumSet.of(DispositionAxis.TRUST, DispositionAxis.RESPECT, DispositionAxis.WARMTH, DispositionAxis.TENSION);
+    static final Set<DispositionAxis> NUDGEABLE_AXES = EnumSet.of(DispositionAxis.TRUST, DispositionAxis.RESPECT,
+            DispositionAxis.WARMTH, DispositionAxis.TENSION, DispositionAxis.ATTRACTION);
 
     private static final Pattern COMMAND_ID = Pattern.compile("[a-z0-9][a-z0-9_-]{0,47}");
+    /** An item id or item tag, namespace optional ({@code wheat}, {@code minecraft:wheat}, {@code #minecraft:logs}). */
+    private static final Pattern ITEM_REF = Pattern.compile("#?([a-z0-9_.-]+:)?[a-z0-9_./-]+");
+    private static final Pattern RESOURCE_ID = Pattern.compile("[a-z0-9_.-]+:[a-z0-9_./-]+");
+    private static final Pattern TOKEN = Pattern.compile("[a-z0-9_.:-]+");
     private static final Pattern FENCE = Pattern.compile("```[a-zA-Z]*");
     private static final Pattern MESSAGE_FIELD =
             Pattern.compile("\"(?:message|dialogue)\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
@@ -105,6 +118,7 @@ public final class AiReplyParser {
 
         AiEmotion emotion = string(json, "emotion").flatMap(AiEmotion::byKey).orElse(AiEmotion.NEUTRAL);
         Optional<AiMemoryNote> memory = memory(json.get("memory"));
+        Optional<AiInterjection> interjection = interjection(json.get("interjection"));
 
         List<AiEffect> effects = new ArrayList<>();
         if (json.has("effects") && json.get("effects").isJsonArray()) {
@@ -115,7 +129,8 @@ public final class AiReplyParser {
                 }
             }
         }
-        return Optional.of(new AiReply(dialogue, command, sentiment, confidence, emotion, memory, effects, true));
+        return Optional.of(new AiReply(dialogue, command, sentiment, confidence, emotion, memory, effects,
+                interjection, true));
     }
 
     private static Optional<AiMemoryNote> memory(JsonElement element) {
@@ -124,31 +139,141 @@ public final class AiReplyParser {
         }
         String text;
         AiImportance importance = AiImportance.MEDIUM;
+        boolean secret = false;
         if (element.isJsonPrimitive()) {
             text = element.getAsString();
         } else if (element.isJsonObject()) {
             JsonObject object = element.getAsJsonObject();
             text = string(object, "text").orElse("");
             importance = string(object, "importance").flatMap(AiImportance::byKey).orElse(AiImportance.MEDIUM);
+            secret = bool(object, "secret");
         } else {
             return Optional.empty();
         }
         String clean = AiText.clean(text, AiText.MAX_MEMORY);
-        return clean.isEmpty() ? Optional.empty() : Optional.of(new AiMemoryNote(clean, importance));
+        return clean.isEmpty() ? Optional.empty() : Optional.of(new AiMemoryNote(clean, importance, secret));
+    }
+
+    private static Optional<AiInterjection> interjection(JsonElement element) {
+        if (element == null || !element.isJsonObject()) {
+            return Optional.empty();
+        }
+        JsonObject object = element.getAsJsonObject();
+        String speaker = AiText.clean(string(object, "speaker").orElse(""), MAX_TOKEN);
+        String message = AiText.clean(string(object, "message").orElse(""), AiText.MAX_DIALOGUE / 2);
+        return speaker.isEmpty() || message.isEmpty() ? Optional.empty()
+                : Optional.of(new AiInterjection(speaker, message));
     }
 
     /** One requested effect, typed and bounded, or empty when its type or parameters are not legal. */
     static Optional<AiEffect> parseEffect(JsonObject json) {
         String type = string(json, "type").map(t -> t.trim().toLowerCase(Locale.ROOT)).orElse("");
-        if (AiEffect.DispositionNudge.TYPE.equals(type)) {
-            Optional<DispositionAxis> axis = string(json, "axis").flatMap(DispositionAxis::byKey)
-                    .filter(NUDGEABLE_AXES::contains);
-            int direction = direction(json);
-            if (axis.isPresent() && direction != 0) {
-                return Optional.of(new AiEffect.DispositionNudge(axis.get(), direction));
+        switch (type) {
+            case AiEffect.DispositionNudge.TYPE -> {
+                Optional<DispositionAxis> axis = string(json, "axis").flatMap(DispositionAxis::byKey)
+                        .filter(NUDGEABLE_AXES::contains);
+                int direction = direction(json);
+                if (axis.isPresent() && direction != 0) {
+                    return Optional.of(new AiEffect.DispositionNudge(axis.get(), direction));
+                }
+            }
+            case AiEffect.Promise.TYPE -> {
+                String item = itemRef(json).orElse("");
+                if (string(json, "item").filter(i -> !i.isBlank()).isPresent() && item.isEmpty()) {
+                    return Optional.empty(); // an item was named but is not an item id: not a promise we can check
+                }
+                int count = item.isEmpty() ? 0 : clampInt(json, "count", 1, 1, MAX_PROMISE_COUNT);
+                int days = clampInt(json, "days", 1, 1, MAX_PROMISE_DAYS);
+                return Optional.of(new AiEffect.Promise(item, count, days, summary(json)));
+            }
+            case AiEffect.Wish.TYPE -> {
+                Optional<String> item = itemRef(json);
+                if (item.isPresent()) {
+                    return Optional.of(new AiEffect.Wish(item.get(), clampInt(json, "days", 5, 1, MAX_WISH_DAYS), summary(json)));
+                }
+            }
+            case AiEffect.OfferQuest.TYPE -> {
+                Optional<String> quest = string(json, "quest").map(q -> q.trim().toLowerCase(Locale.ROOT))
+                        .filter(q -> q.length() <= MAX_TOKEN && RESOURCE_ID.matcher(q).matches());
+                if (quest.isPresent()) {
+                    return Optional.of(new AiEffect.OfferQuest(quest.get()));
+                }
+            }
+            case AiEffect.UnlockTopic.TYPE -> {
+                Optional<String> topic = token(json, "topic");
+                if (topic.isPresent()) {
+                    return Optional.of(new AiEffect.UnlockTopic(topic.get()));
+                }
+            }
+            case AiEffect.Opinion.TYPE -> {
+                String about = AiText.clean(string(json, "about").orElse(""), MAX_TOKEN);
+                String axis = string(json, "axis").map(a -> a.trim().toLowerCase(Locale.ROOT)).orElse("");
+                int direction = direction(json);
+                if (!about.isEmpty() && OPINION_AXES.contains(axis) && direction != 0) {
+                    return Optional.of(new AiEffect.Opinion(about, axis, direction,
+                            AiText.clean(string(json, "cause").orElse(""), AiText.MAX_MEMORY)));
+                }
+            }
+            case AiEffect.Directions.TYPE -> {
+                Optional<String> place = token(json, "place");
+                if (place.isPresent()) {
+                    return Optional.of(new AiEffect.Directions(place.get()));
+                }
+            }
+            case AiEffect.Discount.TYPE -> {
+                return Optional.of(new AiEffect.Discount());
+            }
+            case AiEffect.Forgive.TYPE -> {
+                return Optional.of(new AiEffect.Forgive());
+            }
+            case AiEffect.Grudge.TYPE -> {
+                return Optional.of(new AiEffect.Grudge());
+            }
+            default -> {
+                // Unknown effect types are dropped: the model cannot reach anything not written here.
             }
         }
         return Optional.empty();
+    }
+
+    /** A normalised item reference ({@code minecraft:wheat}, {@code #minecraft:logs}), or empty. */
+    private static Optional<String> itemRef(JsonObject json) {
+        return string(json, "item").map(i -> i.trim().toLowerCase(Locale.ROOT).replace(' ', '_'))
+                .filter(i -> !i.isEmpty() && i.length() <= MAX_TOKEN && ITEM_REF.matcher(i).matches())
+                .map(i -> {
+                    boolean tag = i.startsWith("#");
+                    String id = tag ? i.substring(1) : i;
+                    return (tag ? "#" : "") + (id.contains(":") ? id : "minecraft:" + id);
+                });
+    }
+
+    private static Optional<String> token(JsonObject json, String key) {
+        return string(json, key).map(t -> t.trim().toLowerCase(Locale.ROOT).replace(' ', '_'))
+                .filter(t -> !t.isEmpty() && t.length() <= MAX_TOKEN && TOKEN.matcher(t).matches());
+    }
+
+    private static String summary(JsonObject json) {
+        return AiText.clean(string(json, "summary").or(() -> string(json, "what")).orElse(""), AiText.MAX_MEMORY);
+    }
+
+    private static int clampInt(JsonObject json, String key, int fallback, int min, int max) {
+        JsonElement element = json.get(key);
+        int value = fallback;
+        if (element != null && element.isJsonPrimitive()) {
+            try {
+                value = (int) Math.round(element.getAsJsonPrimitive().isNumber()
+                        ? element.getAsDouble() : Double.parseDouble(element.getAsString().trim()));
+            } catch (RuntimeException ignored) {
+                value = fallback;
+            }
+        }
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static boolean bool(JsonObject json, String key) {
+        JsonElement element = json.get(key);
+        return element != null && element.isJsonPrimitive() && element.getAsJsonPrimitive().isBoolean()
+                && element.getAsBoolean();
     }
 
     private static int direction(JsonObject json) {

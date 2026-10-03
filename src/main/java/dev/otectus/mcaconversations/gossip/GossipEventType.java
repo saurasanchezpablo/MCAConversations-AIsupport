@@ -61,7 +61,24 @@ public enum GossipEventType {
     /** A building the village had is gone. */
     BUILDING_REMOVED,
     /** The village's spirit — its character, its tier, what it is known for — changed. */
-    SPIRIT_IDENTITY_CHANGED;
+    SPIRIT_IDENTITY_CHANGED,
+
+    /**
+     * A player was strikingly kind to a villager in an AI conversation (subject A = the player,
+     * subject B = the villager). Only ever told to that same player: word got back to them.
+     */
+    PLAYER_KINDNESS,
+    /** A player was strikingly cruel to a villager in an AI conversation; told only to that player. */
+    PLAYER_CRUELTY;
+
+    /**
+     * True for stories whose subject A is a player and which are told only to that player. A
+     * villager would never recount a stranger's private quarrel to a third player, but does let a
+     * player know what is being said about them.
+     */
+    public boolean aboutListener() {
+        return this == PLAYER_KINDNESS || this == PLAYER_CRUELTY;
+    }
 
     /** JSON/lang name, e.g. {@code marriage}. */
     public String jsonName() {

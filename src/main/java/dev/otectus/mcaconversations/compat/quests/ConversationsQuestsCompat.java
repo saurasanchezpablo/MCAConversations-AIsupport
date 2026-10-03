@@ -150,4 +150,32 @@ public final class ConversationsQuestsCompat implements QuestsBridge.QuestQuerie
             McaConversations.LOGGER.debug("Quests signalTopicTalked({}) failed; ignoring", topic, t);
         }
     }
+
+    @Override
+    public java.util.List<String> eligibleOfferIds(ServerPlayer player, Entity villager) {
+        try {
+            return QuestManager.eligibleOffers(player, villager).stream()
+                    .map(QuestDefinition::id).map(ResourceLocation::toString).limit(6).toList();
+        } catch (Throwable t) {
+            McaConversations.LOGGER.debug("Quests eligibleOffers failed; ignoring", t);
+            return java.util.List.of();
+        }
+    }
+
+    @Override
+    public boolean offerQuest(ServerPlayer player, Entity villager, String questId) {
+        try {
+            // The 1.21.1 API has no menu restricted to given quests; the villager's own menu lists
+            // the offered quest among its eligible offers, which is where the conversation pointed.
+            ResourceLocation id = ResourceLocation.tryParse(questId);
+            if (id == null || QuestManager.eligibleOffers(player, villager).stream().noneMatch(q -> q.id().equals(id))) {
+                return false;
+            }
+            QuestManager.open(player, villager);
+            return true;
+        } catch (Throwable t) {
+            McaConversations.LOGGER.debug("Quests offerQuest({}) failed; ignoring", questId, t);
+            return false;
+        }
+    }
 }

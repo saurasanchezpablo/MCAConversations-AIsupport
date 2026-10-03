@@ -292,7 +292,7 @@ public final class ConversationsEvents {
     private static void dropAiMemory(Entity villager) {
         try {
             if (villager.getServer() != null) {
-                dev.otectus.mcaconversations.ai.AiConversations.onVillagerDeath(villager.getServer(), villager.getUUID());
+                dev.otectus.mcaconversations.ai.AiConversations.onVillagerDied(villager);
             }
         } catch (Throwable t) {
             McaConversations.LOGGER.debug("AI memory death-prune failed; ignoring", t);
@@ -367,6 +367,7 @@ public final class ConversationsEvents {
         // Deferred chat-mode replies are due-checked every tick (deadline queue, not the modulo cadence).
         long gameTime = event.getServer().overworld().getGameTime();
         ChatModeScheduler.drain(gameTime);
+        dev.otectus.mcaconversations.ai.AiConversations.tick(event.getServer());
 
         // Villager attention (typing awareness + conversation presence) is applied every tick.
         VillagerAttention.tick(event.getServer(), gameTime);

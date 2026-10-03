@@ -61,6 +61,23 @@ public final class QuestsBridge {
 
         /** Signals that the player just talked to this villager about {@code topic} (drives talk_about objectives). */
         void signalTopicTalked(ServerPlayer player, Entity villager, String topic);
+
+        /**
+         * Ids ({@code namespace:path}) of the quests this villager could offer this player right now,
+         * as MCA: Quests' own offer filters decide. Used by AI conversations to let a villager bring up
+         * real work; empty when nothing is on offer.
+         */
+        default java.util.List<String> eligibleOfferIds(ServerPlayer player, Entity villager) {
+            return java.util.List.of();
+        }
+
+        /**
+         * Opens MCA: Quests' commission menu restricted to one offered quest, so the player still
+         * reads the terms and chooses. Never accepts on the player's behalf. Returns whether it opened.
+         */
+        default boolean offerQuest(ServerPlayer player, Entity villager, String questId) {
+            return false;
+        }
     }
 
     /** Installs the query façade (called by {@code ConversationsQuestsCompat.register()} when Quests is present). */

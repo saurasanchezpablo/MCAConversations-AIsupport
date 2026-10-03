@@ -87,6 +87,7 @@ public final class AiPromptBuilder {
         }
         sb.append("Stay consistent with these memories and refer back to them when it is natural. Never invent ")
                 .append("shared history that is not listed here.\n");
+        appendVoice(sb, in);
 
         appendSchema(sb, in);
         if (in.language() != null && !in.language().isBlank()) {
@@ -111,8 +112,28 @@ public final class AiPromptBuilder {
         sb.append(" \"emotion\": \"neutral|happy|grateful|proud|amused|surprised|sad|hurt|annoyed|angry|afraid\",\n");
         sb.append(" \"memory\": null or {\"text\": \"one short sentence, from ").append(villager)
                 .append("'s point of view, about ").append(player).append("\", \"importance\": \"low|medium|high\"},\n");
-        sb.append(" \"effects\": [{\"type\": \"disposition\", \"axis\": \"trust|respect|warmth|tension\", ")
-                .append("\"direction\": \"up|down\"}]}\n");
+        sb.append(" \"emotion\" may also be \"smitten\" only where romance is possible,\n");
+        sb.append(" \"effects\": [ ...zero to three of the effects below... ]");
+        if (in.bystanders()) {
+            sb.append(",\n \"interjection\": null or {\"speaker\": \"exact name of someone close enough to hear\", ")
+                    .append("\"message\": \"one short line they say, in their own voice\"}");
+        }
+        sb.append("}\n");
+        sb.append("memory may also carry \"secret\": true when it was told in confidence; secrets are never repeated.\n");
+        sb.append("Effects you may use:\n");
+        sb.append("- {\"type\": \"disposition\", \"axis\": \"trust|respect|warmth|tension|attraction\", \"direction\": \"up|down\"}")
+                .append(" (attraction only where romance is possible)\n");
+        sb.append("- {\"type\": \"promise\", \"item\": \"minecraft:item_id or empty\", \"count\": 1-8 (each gift hands over one item), \"days\": 1-7, ")
+                .append("\"summary\": \"what ").append(player).append(" promised\"} only when ").append(player)
+                .append(" clearly commits to bringing something or coming back\n");
+        sb.append("- {\"type\": \"wish\", \"item\": \"minecraft:item_id\", \"days\": 1-10, \"summary\": \"why\"}")
+                .append(" when ").append(villager).append(" lets slip something they would love to have\n");
+        sb.append("- {\"type\": \"discount\"} when ").append(villager).append(" wants to give a good friend better prices\n");
+        sb.append("- {\"type\": \"grudge\"} when ").append(villager).append(" is hurt enough to refuse favours for a while\n");
+        sb.append("- {\"type\": \"forgive\"} when ").append(player).append(" sincerely apologises for what caused a grudge\n");
+        for (String offer : in.offers()) {
+            sb.append("- ").append(offer).append('\n');
+        }
         sb.append("How to fill it in:\n");
         sb.append("- impact: how ").append(player).append("'s last message changes how ").append(villager)
                 .append(" feels about them, judged by what was meant (not by single words), by ").append(villager)
@@ -130,6 +151,25 @@ public final class AiPromptBuilder {
                 sb.append("  * ").append(command.id()).append(": ").append(command.description()).append('\n');
             }
         }
+    }
+
+    /** How to sound like a person, not an assistant: the part that makes the villager feel real. */
+    private static void appendVoice(StringBuilder sb, AiPromptInput in) {
+        String villager = in.villagerName();
+        String player = in.playerName();
+        sb.append("\n## How ").append(villager).append(" talks\n");
+        sb.append("- You are ").append(villager).append(", a person with your own day, worries and wants. Speak like ")
+                .append("someone in a small village: plain words, short sentences, contractions, the odd trailing thought.\n");
+        sb.append("- Usually one to three sentences. Never lists, never headings, never an offer to \"help with anything else\".\n");
+        sb.append("- Let your mood, your relationship with ").append(player).append(", and what weighs on you shape ")
+                .append("every reply. A stranger gets politeness; a friend gets warmth and teasing; someone who hurt you ")
+                .append("gets coldness.\n");
+        sb.append("- Have opinions and preferences. Disagree when you disagree. Ask questions back when you are curious. ")
+                .append("Bring up your own life, work and neighbours when it fits.\n");
+        sb.append("- Remember: refer to promises, past kindnesses and slights naturally, the way people do (\"you still owe me ")
+                .append("that wheat\").\n");
+        sb.append("- If you are grieving, it shows. If you are in love, it shows. If you are angry, do not pretend otherwise.\n");
+        sb.append("- Never mention game mechanics, hearts, JSON, AI, or that you are a character.\n");
     }
 
     private static void appendBlock(StringBuilder sb, String block) {
