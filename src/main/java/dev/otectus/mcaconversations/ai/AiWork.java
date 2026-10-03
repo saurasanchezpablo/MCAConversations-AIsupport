@@ -34,6 +34,7 @@ import net.neoforged.neoforge.common.Tags;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -68,6 +69,21 @@ final class AiWork {
 
     enum Phase { WORKING, RETURNING }
 
+    /** Several villagers on one task for one player: one shared bar, one total. */
+    static final class Group {
+        final ServerBossEvent bar;
+        final AiChore chore;
+        final int goal;
+        final int size;
+
+        Group(ServerBossEvent bar, AiChore chore, int goal, int size) {
+            this.bar = bar;
+            this.chore = chore;
+            this.goal = goal;
+            this.size = size;
+        }
+    }
+
     static final class Job {
         final UUID villager;
         final UUID player;
@@ -75,8 +91,10 @@ final class AiWork {
         final int goal;
         final int baseline;
         final ServerBossEvent bar;
+        final Group group;
         Phase phase = Phase.WORKING;
         int mined;
+        int lastGathered;
         long phaseSince;
         BlockPos target;
         long targetSince;
@@ -84,13 +102,14 @@ final class AiWork {
         int digNeeded;
         final Set<BlockPos> unreachable = new HashSet<>();
 
-        Job(UUID villager, UUID player, AiChore chore, int goal, int baseline, ServerBossEvent bar, long now) {
+        Job(UUID villager, UUID player, AiChore chore, int goal, int baseline, ServerBossEvent bar, Group group, long now) {
             this.villager = villager;
             this.player = player;
             this.chore = chore;
             this.goal = goal;
             this.baseline = baseline;
             this.bar = bar;
+            this.group = group;
             this.phaseSince = now;
         }
     }
@@ -160,6 +179,40 @@ final class AiWork {
 
     /** Sends the villager to work. Returns false (and assigns nothing) when it lacks the tool. */
     static boolean start(Entity villager, ServerPlayer player, AiChore chore, int goal, String villagerName, long now) {
+        return start(villager, player, chore, goal, villagerName, null, now);
+    }
+
+    /**
+     * Sends several villagers to work together for one player. The total is split between those who
+     * have the tool; the others are returned so they can say why they cannot. One bar shows the total.
+     */
+    static List<Entity> startGroup(List<Entity> villagers, ServerPlayer player, AiChore chore, int total, long now) {
+        List<Entity> able = villagers.stream().filter(v -> hasTool(v, chore)).toList();
+        List<Entity> unable = villagers.stream().filter(v -> !hasTool(v, chore)).toList();
+        if (able.isEmpty()) {
+            return unable;
+        }
+        ServerBossEvent bar = new ServerBossEvent(groupTitle(able.size(), chore, 0, total), BossEvent.BossBarColor.GREEN,
+                total > 0 ? BossEvent.BossBarOverlay.NOTCHED_10 : BossEvent.BossBarOverlay.PROGRESS);
+        bar.setProgress(0f);
+        bar.addPlayer(player);
+        Group group = new Group(bar, chore, total, able.size());
+        for (int i = 0; i < able.size(); i++) {
+            // An even share, the remainder to the first ones; 0 stays open-ended for everyone.
+            int share = share(total, able.size(), i);
+            Entity v = able.get(i);
+            start(v, player, chore, share, McaCompat.getVillagerName(v).orElse(v.getName().getString()), group, now);
+        }
+        return unable;
+    }
+
+    /** One member's part of a group total: even shares, the remainder to the first; 0 stays open-ended. */
+    static int share(int total, int size, int index) {
+        return total <= 0 || size <= 0 ? 0 : total / size + (index < total % size ? 1 : 0);
+    }
+
+    private static boolean start(Entity villager, ServerPlayer player, AiChore chore, int goal, String villagerName,
+                                 Group group, long now) {
         if (!hasTool(villager, chore)) {
             return false;
         }
@@ -170,11 +223,13 @@ final class AiWork {
             return false;
         }
         int baseline = chore == AiChore.MINE ? 0 : count(McaHandles.inventory(villager), yieldOf(chore));
-        ServerBossEvent bar = new ServerBossEvent(title(villagerName, chore, 0, goal), BossEvent.BossBarColor.GREEN,
-                goal > 0 ? BossEvent.BossBarOverlay.NOTCHED_10 : BossEvent.BossBarOverlay.PROGRESS);
-        bar.setProgress(0f);
-        bar.addPlayer(player);
-        JOBS.put(villager.getUUID(), new Job(villager.getUUID(), player.getUUID(), chore, goal, baseline, bar, now));
+        ServerBossEvent bar = group != null ? group.bar : new ServerBossEvent(title(villagerName, chore, 0, goal),
+                BossEvent.BossBarColor.GREEN, goal > 0 ? BossEvent.BossBarOverlay.NOTCHED_10 : BossEvent.BossBarOverlay.PROGRESS);
+        if (group == null) {
+            bar.setProgress(0f);
+            bar.addPlayer(player);
+        }
+        JOBS.put(villager.getUUID(), new Job(villager.getUUID(), player.getUUID(), chore, goal, baseline, bar, group, now));
         return true;
     }
 
@@ -182,8 +237,21 @@ final class AiWork {
     static void stop(UUID villager, boolean toldToStop) {
         Job job = JOBS.remove(villager);
         if (job != null) {
+            release(job);
+        }
+    }
+
+    /** Hides the job's bar, unless it is a group bar other members still use. */
+    private static void release(Job job) {
+        if (job.group == null || JOBS.values().stream().noneMatch(other -> other.group == job.group && other != job)) {
             job.bar.removeAllPlayers();
         }
+    }
+
+    private static Component groupTitle(int size, AiChore chore, int got, int goal) {
+        return Component.translatable("mcaconversations.ai.group", size).append(" - ")
+                .append(Component.translatable("mcaconversations.ai.chore." + chore.key()))
+                .append(Component.literal(": " + got + (goal > 0 ? "/" + goal : "")));
     }
 
     static Optional<Job> job(UUID villager) {
@@ -228,21 +296,21 @@ final class AiWork {
                 ServerPlayer player = server.getPlayerList().getPlayer(job.player);
                 Entity villager = player == null ? null : player.serverLevel().getEntity(job.villager);
                 if (player == null || villager == null || !villager.isAlive()) {
-                    job.bar.removeAllPlayers();
                     it.remove();
+                    release(job);
                     continue;
                 }
                 if (job.phase == Phase.WORKING && job.chore == AiChore.MINE) {
                     mine(player.serverLevel(), villager, job, now);
                 }
                 if (progressTick && !progress(server, villager, player, job, now)) {
-                    job.bar.removeAllPlayers();
                     it.remove();
+                    release(job);
                 }
             } catch (Throwable t) {
                 McaConversations.LOGGER.debug("AI work tick failed; dropping the job", t);
-                job.bar.removeAllPlayers();
                 it.remove();
+                release(job);
             }
         }
     }
@@ -251,8 +319,15 @@ final class AiWork {
     private static boolean progress(MinecraftServer server, Entity villager, ServerPlayer player, Job job, long now) {
         String name = McaCompat.getVillagerName(villager).orElse(villager.getName().getString());
         int got = gathered(job, villager);
-        job.bar.setName(title(name, job.chore, got, job.goal));
-        job.bar.setProgress(Math.min(1f, got / (float) (job.goal > 0 ? job.goal : OPEN_ENDED_SCALE)));
+        job.lastGathered = got;
+        if (job.group != null) {
+            int total = JOBS.values().stream().filter(j -> j.group == job.group).mapToInt(j -> j.lastGathered).sum();
+            job.bar.setName(groupTitle(job.group.size, job.chore, total, job.group.goal));
+            job.bar.setProgress(Math.min(1f, total / (float) (job.group.goal > 0 ? job.group.goal : OPEN_ENDED_SCALE)));
+        } else {
+            job.bar.setName(title(name, job.chore, got, job.goal));
+            job.bar.setProgress(Math.min(1f, got / (float) (job.goal > 0 ? job.goal : OPEN_ENDED_SCALE)));
+        }
         if (job.phase == Phase.WORKING) {
             String current = McaCompat.getCurrentChore(villager).orElse("NONE").toUpperCase(java.util.Locale.ROOT);
             if (!current.equals(job.chore.mcaChoreName())) {
@@ -264,7 +339,9 @@ final class AiWork {
                 McaHandles.runInteraction(villager, player, "FOLLOW");
                 job.phase = Phase.RETURNING;
                 job.phaseSince = now;
-                job.bar.setColor(BossEvent.BossBarColor.BLUE);
+                if (job.group == null) {
+                    job.bar.setColor(BossEvent.BossBarColor.BLUE);
+                }
             }
             return true;
         }
@@ -433,13 +510,9 @@ final class AiWork {
     }
 
     static void forgetPlayer(UUID player) {
-        JOBS.values().removeIf(job -> {
-            if (job.player.equals(player)) {
-                job.bar.removeAllPlayers();
-                return true;
-            }
-            return false;
-        });
+        List<Job> gone = JOBS.values().stream().filter(job -> job.player.equals(player)).toList();
+        gone.forEach(job -> JOBS.remove(job.villager));
+        gone.forEach(job -> job.bar.removeAllPlayers());
     }
 
     static void reset() {

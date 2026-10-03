@@ -238,6 +238,24 @@ and "go chop" without an axe gets "I need an axe".
 others for family and friends. Collected goods are never lost: if the villager cannot get back
 within a minute, it drops them where it stands.
 
+**Group help.** `work`, `pick_up`, `breed`, `follow`, `stay`, `move` and `go_home` may carry
+`"helpers": [names]` or `"helpers": "all"` ("everyone, follow me", "get Bob to help you chop").
+
+Only villagers `AiActionContext.helpers` found willing can be brought in, and the model is shown
+each one with its tools. Willing means:
+- within 16 blocks of the player;
+- a teen or an adult;
+- knows the player (acquaintance or closer, or family);
+- holds no grudge;
+- awake, calm, and not busy with another player;
+- has a unique name.
+
+Each helper says it is joining (or, for work, that it lacks the tool), then everyone acts:
+- **Work:** the total is split evenly between those with the tool (`AiWork.share`), under one group
+  bar: "Group of 3 - Chopping: 12/30". Each villager hands over its share when done.
+- **Pick-up and breeding:** run per villager, with only the leader's bar showing.
+- **Movement:** applies to all of them.
+
 **Work** (`AiWork`):
 - `chop`, `harvest`, `hunt` and `fish` are MCA's own chores, assigned with MCA's command, using the
   tool in the villager's inventory.

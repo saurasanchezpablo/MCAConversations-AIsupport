@@ -53,6 +53,10 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
     /** Actions a villager holding a grudge still takes: leaving is not a favour. */
     static final Set<AiActionKind> ACTIONS_DESPITE_GRUDGE = EnumSet.of(AiActionKind.MOVE, AiActionKind.GO_HOME,
             AiActionKind.STOP_WORK, AiActionKind.GIFT);
+    /** Actions other villagers can be brought in on. */
+    static final Set<AiActionKind> GROUP_ACTIONS = EnumSet.of(AiActionKind.WORK, AiActionKind.PICK_UP,
+            AiActionKind.BREED, AiActionKind.FOLLOW, AiActionKind.STAY, AiActionKind.MOVE, AiActionKind.GO_HOME);
+
     /** Most actions one reply may carry (e.g. "here's an axe" and "go chop"). */
     static final int MAX_ACTIONS = 2;
 
@@ -196,7 +200,12 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
                         && (action.place().isEmpty() || facts.offeredPlaces().contains(action.place()))
                         && (!holdsGrudge || ACTIONS_DESPITE_GRUDGE.contains(action.kind()));
                 if (allowed && actions.stream().noneMatch(a -> a.kind() == action.kind())) {
-                    actions.add(action);
+                    // Helpers only for group-able actions, and only villagers shown as willing.
+                    List<String> helpers = !GROUP_ACTIONS.contains(action.kind()) ? List.of()
+                            : action.everyone() ? (facts.helpers().isEmpty() ? List.of() : List.of(AiEffect.Action.ALL))
+                            : action.helpers().stream().filter(h -> AiTurnFacts.contains(facts.helpers(), h)).toList();
+                    actions.add(new AiEffect.Action(action.kind(), action.chore(), action.amount(), action.item(),
+                            action.place(), helpers));
                 }
             }
         }

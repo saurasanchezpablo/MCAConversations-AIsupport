@@ -29,7 +29,59 @@ import java.util.stream.Collectors;
 final class AiActionContext {
 
     /** What one turn knows about actions. */
-    record Snapshot(Set<String> actions, Set<String> chores, List<AiContextSection> sections, List<String> offers) {
+    record Snapshot(Set<String> actions, Set<String> chores, List<AiContextSection> sections, List<String> offers,
+                    Map<String, java.util.UUID> helpers) {
+    }
+
+    /** How far around the player other villagers can be brought in to help. */
+    static final double HELPER_RANGE = 16.0;
+    static final int MAX_HELPERS = 6;
+
+    /**
+     * Other villagers near the player who would pitch in: teens and adults who know the player, hold no
+     * grudge, are awake, calm, and not busy with another player's errand. Unique names only.
+     */
+    static Map<String, java.util.UUID> helpers(net.minecraft.server.level.ServerLevel level, Entity leader,
+                                               ServerPlayer player) {
+        Map<String, java.util.UUID> out = new LinkedHashMap<>();
+        Map<String, Integer> seen = new java.util.HashMap<>();
+        long now = level.getGameTime();
+        List<Entity> candidates = level.getEntities(player, player.getBoundingBox().inflate(HELPER_RANGE),
+                        e -> e != leader && e.isAlive() && McaCompat.isMcaVillager(e)).stream()
+                .sorted(java.util.Comparator.comparingDouble(e -> e.distanceToSqr(player))).toList();
+        for (Entity e : candidates) {
+            AgeGroup age = McaCompat.ageGroup(e);
+            if ((age != AgeGroup.ADULT && age != AgeGroup.TEEN) || McaCompat.isPanicking(e)
+                    || (e instanceof net.minecraft.world.entity.LivingEntity l && l.isSleeping())
+                    || McaCompat.isInteractingWith(e).map(id -> !id.equals(player.getUUID())).orElse(false)
+                    || AiWork.job(e.getUUID()).map(j -> !j.player.equals(player.getUUID())).orElse(false)) {
+                continue;
+            }
+            RelationshipBand band;
+            try {
+                band = dev.otectus.mcaconversations.conversation.Relationships.bandOf(e, player);
+            } catch (Throwable t) {
+                continue;
+            }
+            boolean family = dev.otectus.mcaconversations.conversation.Relationships.rolesOf(e, player).any();
+            boolean grudge = AiMemorySavedData.get(level.getServer()).peek(e.getUUID(), player.getUUID())
+                    .map(p -> p.grudge(now)).orElse(false);
+            if (grudge || !(family || band.isAtLeast(RelationshipBand.ACQUAINTANCE))) {
+                continue;
+            }
+            String name = McaCompat.getVillagerName(e).orElse(null);
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            if (seen.merge(name.toLowerCase(java.util.Locale.ROOT), 1, Integer::sum) > 1) {
+                out.remove(name); // an ambiguous name could bring in the wrong villager
+                continue;
+            }
+            if (out.size() < MAX_HELPERS) {
+                out.put(name, e.getUUID());
+            }
+        }
+        return out;
     }
 
     private AiActionContext() {
@@ -130,6 +182,21 @@ final class AiActionContext {
                         lines.add("Your current task: " + currentChore.toLowerCase(java.util.Locale.ROOT));
                     }
                 });
+        Map<String, java.util.UUID> helpers = helpers(level, villager, player);
+        if (!helpers.isEmpty()) {
+            List<String> who = new ArrayList<>();
+            for (Map.Entry<String, java.util.UUID> h : helpers.entrySet()) {
+                Entity e = level.getEntity(h.getValue());
+                List<String> kit = new ArrayList<>();
+                for (AiChore chore : AiChore.values()) {
+                    if (e != null && AiWork.hasTool(e, chore)) {
+                        kit.add(chore.tool());
+                    }
+                }
+                who.add(h.getKey() + (kit.isEmpty() ? "" : " (has " + String.join(", ", kit) + ")"));
+            }
+            lines.add("Villagers nearby who would pitch in if asked: " + String.join("; ", who));
+        }
         List<AiContextSection> sections = List.of(new AiContextSection("Your work and belongings", lines));
 
         // --- the action menu shown to the model ---------------------------------------------------------
@@ -147,6 +214,12 @@ final class AiActionContext {
                 offers.add("{\"type\": \"action\", \"do\": \"guide|wait_at\", \"place\": one of "
                         + villagePlaces.stream().map(p -> "\"" + p + "\"").collect(Collectors.joining(", "))
                         + "} guide = walk " + playerName + " there; wait_at = go there and wait");
+            }
+            if (!helpers.isEmpty()) {
+                offers.add("Any work, pick_up, breed, follow, stay, move or go_home action may add \"helpers\": [names] or "
+                        + "\"helpers\": \"all\" when " + playerName + " wants others to join in (\"everyone, follow me\", "
+                        + "\"get Bob to help you chop\"). Only these can be brought in: "
+                        + String.join(", ", helpers.keySet()) + ". A work amount is the total for the whole group.");
             }
             if (actions.contains(AiActionKind.FETCH)) {
                 offers.add("{\"type\": \"action\", \"do\": \"fetch\", \"item\": \"minecraft:item_id\", \"amount\": 1-64} "
@@ -166,7 +239,8 @@ final class AiActionContext {
         } else if (grudge) {
             offers.add("{\"type\": \"action\", \"do\": \"move|go_home|stop_work\"} only; you do no favours while hurt");
         }
-        return new Snapshot(actions.stream().map(AiActionKind::key).collect(Collectors.toSet()), chores, sections, offers);
+        return new Snapshot(actions.stream().map(AiActionKind::key).collect(Collectors.toSet()), chores, sections, offers,
+                helpers);
     }
 
     private static String summarize(Container container) {

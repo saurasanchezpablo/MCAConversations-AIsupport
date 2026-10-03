@@ -144,20 +144,33 @@ public sealed interface AiEffect permits AiEffect.DispositionNudge, AiEffect.Pro
      * @param amount for WORK, how much to gather before coming back (0 = until told to stop);
      *               for GIVE, how many items
      * @param item   for GIVE and FETCH, which item (id)
-     * @param place  for GUIDE and WAIT_AT, a place token the villager was shown
+     * @param place   for GUIDE and WAIT_AT, a place token the villager was shown
+     * @param helpers other villagers to bring in, by name, or {@code "all"}; empty for none
      */
-    record Action(AiActionKind kind, Optional<AiChore> chore, int amount, String item, String place) implements AiEffect {
+    record Action(AiActionKind kind, Optional<AiChore> chore, int amount, String item, String place,
+                  java.util.List<String> helpers) implements AiEffect {
         public static final String TYPE = "action";
+        /** Means every villager nearby who is willing. */
+        public static final String ALL = "all";
 
         public Action {
             chore = chore == null ? Optional.empty() : chore;
-            amount = Math.max(0, Math.min(64, amount));
+            amount = Math.max(0, Math.min(kind == AiActionKind.WORK ? 256 : 64, amount));
             item = item == null ? "" : item;
             place = place == null ? "" : place;
+            helpers = helpers == null ? java.util.List.of() : java.util.List.copyOf(helpers);
+        }
+
+        public Action(AiActionKind kind, Optional<AiChore> chore, int amount, String item, String place) {
+            this(kind, chore, amount, item, place, java.util.List.of());
         }
 
         public Action(AiActionKind kind, Optional<AiChore> chore, int amount, String item) {
-            this(kind, chore, amount, item, "");
+            this(kind, chore, amount, item, "", java.util.List.of());
+        }
+
+        public boolean everyone() {
+            return helpers.contains(ALL);
         }
 
         @Override

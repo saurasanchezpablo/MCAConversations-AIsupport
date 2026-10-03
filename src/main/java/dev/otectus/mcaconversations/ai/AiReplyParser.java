@@ -273,14 +273,43 @@ public final class AiReplyParser {
                 if (needsPlace && place.isEmpty()) {
                     return Optional.empty();
                 }
-                int amount = clampInt(json, "amount", needsItem ? 1 : 0, 0, 64);
-                return Optional.of(new AiEffect.Action(kind.get(), chore, amount, item, place));
+                int amount = clampInt(json, "amount", needsItem ? 1 : 0, 0, kind.get() == AiActionKind.WORK ? 256 : 64);
+                return Optional.of(new AiEffect.Action(kind.get(), chore, amount, item, place, helpers(json.get("helpers"))));
             }
             default -> {
                 // Unknown effect types are dropped: the model cannot reach anything not written here.
             }
         }
         return Optional.empty();
+    }
+
+    /** Helper names (bounded, cleaned), or {@code ["all"]} for "everyone"/"todos"/"all". */
+    static java.util.List<String> helpers(JsonElement element) {
+        java.util.List<String> out = new ArrayList<>();
+        if (element == null || element.isJsonNull()) {
+            return out;
+        }
+        java.util.List<String> raw = new ArrayList<>();
+        if (element.isJsonArray()) {
+            element.getAsJsonArray().forEach(e -> {
+                if (e.isJsonPrimitive()) {
+                    raw.add(e.getAsString());
+                }
+            });
+        } else if (element.isJsonPrimitive()) {
+            raw.add(element.getAsString());
+        }
+        for (String name : raw) {
+            String clean = AiText.clean(name, MAX_TOKEN);
+            String key = clean.toLowerCase(Locale.ROOT);
+            if (key.equals("all") || key.equals("everyone") || key.equals("everybody") || key.equals("todos")) {
+                return java.util.List.of(AiEffect.Action.ALL);
+            }
+            if (!clean.isEmpty() && out.size() < 6) {
+                out.add(clean);
+            }
+        }
+        return out;
     }
 
     /** A normalised item reference ({@code minecraft:wheat}, {@code #minecraft:logs}), or empty. */

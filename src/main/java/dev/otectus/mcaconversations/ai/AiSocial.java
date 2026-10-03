@@ -62,7 +62,8 @@ final class AiSocial {
 
     /** Everything one turn knows about the villager's social world. */
     record Turn(AiTurnFacts facts, List<AiContextSection> sections, Map<String, UUID> neighbourIds,
-                Map<String, UUID> bystanderIds, Map<String, Place> places, List<String> actionOffers) {
+                Map<String, UUID> bystanderIds, Map<String, Place> places, List<String> actionOffers,
+                Map<String, UUID> helperIds) {
     }
 
     private AiSocial() {
@@ -197,8 +198,8 @@ final class AiSocial {
 
         AiTurnFacts facts = new AiTurnFacts(band, hearts, romanceAllowed, !losses.isEmpty(), grudge, quests, topics,
                 places.keySet(), neighbourIds.keySet(), bystanderIds.keySet(), (int) pair.openPromises(),
-                wish.isPresent(), actions.actions(), actions.chores());
-        return new Turn(facts, sections, neighbourIds, bystanderIds, places, actions.offers());
+                wish.isPresent(), actions.actions(), actions.chores(), actions.helpers().keySet());
+        return new Turn(facts, sections, neighbourIds, bystanderIds, places, actions.offers(), actions.helpers());
     }
 
     /** The menu of things the model may name in effects; the schema text lists exactly these. */

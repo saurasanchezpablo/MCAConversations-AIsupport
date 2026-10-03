@@ -25,11 +25,12 @@ import java.util.Set;
  * @param wishActive       the villager already has a wish open with this player
  * @param offeredActions   action keys the villager would do for this player right now
  * @param offeredChores    task keys the villager could be sent to do
+ * @param helpers          lower-case names of nearby villagers willing to pitch in
  */
 public record AiTurnFacts(RelationshipBand band, int hearts, boolean romanceAllowed, boolean grieving, boolean grudge,
                           Set<String> offeredQuests, Set<String> offeredTopics, Set<String> offeredPlaces,
                           Set<String> neighbours, Set<String> bystanders, int openPromises, boolean wishActive,
-                          Set<String> offeredActions, Set<String> offeredChores) {
+                          Set<String> offeredActions, Set<String> offeredChores, Set<String> helpers) {
 
     /** MCA's bouquet threshold: below it, no courtship can start. */
     public static final int ROMANCE_MIN_HEARTS = 10;
@@ -45,6 +46,16 @@ public record AiTurnFacts(RelationshipBand band, int hearts, boolean romanceAllo
         bystanders = lower(bystanders);
         offeredActions = offeredActions == null ? Set.of() : Set.copyOf(offeredActions);
         offeredChores = offeredChores == null ? Set.of() : Set.copyOf(offeredChores);
+        helpers = lower(helpers);
+    }
+
+    /** Without helpers. */
+    public AiTurnFacts(RelationshipBand band, int hearts, boolean romanceAllowed, boolean grieving, boolean grudge,
+                       Set<String> offeredQuests, Set<String> offeredTopics, Set<String> offeredPlaces,
+                       Set<String> neighbours, Set<String> bystanders, int openPromises, boolean wishActive,
+                       Set<String> offeredActions, Set<String> offeredChores) {
+        this(band, hearts, romanceAllowed, grieving, grudge, offeredQuests, offeredTopics, offeredPlaces, neighbours,
+                bystanders, openPromises, wishActive, offeredActions, offeredChores, Set.of());
     }
 
     /** Without spoken actions. */
@@ -52,7 +63,7 @@ public record AiTurnFacts(RelationshipBand band, int hearts, boolean romanceAllo
                        Set<String> offeredQuests, Set<String> offeredTopics, Set<String> offeredPlaces,
                        Set<String> neighbours, Set<String> bystanders, int openPromises, boolean wishActive) {
         this(band, hearts, romanceAllowed, grieving, grudge, offeredQuests, offeredTopics, offeredPlaces, neighbours,
-                bystanders, openPromises, wishActive, Set.of(), Set.of());
+                bystanders, openPromises, wishActive, Set.of(), Set.of(), Set.of());
     }
 
     /** A turn about which nothing is known: nothing beyond hearts, states and dispositions is allowed. */

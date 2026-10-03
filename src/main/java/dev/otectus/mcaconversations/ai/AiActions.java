@@ -13,6 +13,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Carries out what a player asked a villager to do, by word: through MCA's own interaction commands
@@ -40,6 +41,11 @@ final class AiActions {
 
     private static void apply(Entity villager, ServerPlayer player, String villagerName, AiEffect.Action action,
                               AiSocial.Turn turn, long now) {
+        List<Entity> helpers = helpers(villager, player, action, turn);
+        if (!helpers.isEmpty()) {
+            group(villager, player, villagerName, action, turn, helpers, now);
+            return;
+        }
         switch (action.kind()) {
             case TRADE -> later(villager, player, "trade", now);
             case INVENTORY -> later(villager, player, "inventory", now);
@@ -78,6 +84,78 @@ final class AiActions {
             case GUIDE, WAIT_AT, PICK_UP, STORE, FETCH, BREED -> AiErrands.start(villager, player, action, turn, villagerName, now);
             case GIVE -> give(villager, player, action.item(), Math.max(1, action.amount()));
         }
+    }
+
+    /** The other villagers this action brings in, resolved from exactly the names the model was shown. */
+    static List<Entity> helpers(Entity leader, ServerPlayer player, AiEffect.Action action, AiSocial.Turn turn) {
+        if (action.helpers().isEmpty() || turn == null) {
+            return List.of();
+        }
+        List<Entity> out = new java.util.ArrayList<>();
+        for (Map.Entry<String, java.util.UUID> h : turn.helperIds().entrySet()) {
+            boolean named = action.everyone() || action.helpers().stream().anyMatch(n -> n.equalsIgnoreCase(h.getKey()));
+            Entity e = named ? player.serverLevel().getEntity(h.getValue()) : null;
+            if (e != null && e != leader && e.isAlive() && e.distanceTo(player) <= AiActionContext.HELPER_RANGE * 1.5) {
+                out.add(e);
+            }
+        }
+        return out;
+    }
+
+    /** Several villagers at once: each helper says it is coming, then everyone does the thing. */
+    private static void group(Entity leader, ServerPlayer player, String leaderName, AiEffect.Action action,
+                              AiSocial.Turn turn, List<Entity> helpers, long now) {
+        List<Entity> everyone = new java.util.ArrayList<>();
+        everyone.add(leader);
+        everyone.addAll(helpers);
+        List<Entity> unable = List.of();
+        switch (action.kind()) {
+            case WORK -> {
+                AiChore chore = action.chore().orElse(null);
+                if (chore == null) {
+                    return;
+                }
+                unable = AiWork.startGroup(everyone, player, chore, action.amount(), now);
+                for (int i = 0; i < unable.size(); i++) {
+                    Entity e = unable.get(i);
+                    AiLines.sayLater(e, player, AiLines.variant("work_no_tool",
+                                    Component.translatable("mcaconversations.ai.tool." + chore.key())), name(e), now,
+                            25L * (i + 1), AiEmotion.NEUTRAL, VoiceIntent.STATEMENT);
+                }
+            }
+            case PICK_UP, BREED -> {
+                for (Entity e : everyone) {
+                    AiErrands.start(e, player, action, turn, name(e), e == leader, now);
+                }
+            }
+            case FOLLOW, STAY, MOVE, GO_HOME -> {
+                String command = switch (action.kind()) {
+                    case FOLLOW -> "FOLLOW";
+                    case STAY -> "STAY";
+                    case MOVE -> "MOVE";
+                    default -> "gohome";
+                };
+                for (Entity e : everyone) {
+                    if (action.kind() != AiActionKind.STAY) {
+                        VillagerAttention.release(e);
+                    }
+                    McaHandles.runInteraction(e, player, command);
+                }
+            }
+            default -> apply(leader, player, leaderName, new AiEffect.Action(action.kind(), action.chore(), action.amount(),
+                    action.item(), action.place()), turn, now);
+        }
+        int i = 0;
+        for (Entity helper : helpers) {
+            if (!unable.contains(helper)) {
+                AiLines.sayLater(helper, player, AiLines.variant("group_join"), name(helper), now, 20L * (++i),
+                        AiEmotion.HAPPY, VoiceIntent.STATEMENT);
+            }
+        }
+    }
+
+    private static String name(Entity e) {
+        return dev.otectus.mcaconversations.compat.McaCompat.getVillagerName(e).orElse(e.getName().getString());
     }
 
     private static void later(Entity villager, ServerPlayer player, String command, long now) {

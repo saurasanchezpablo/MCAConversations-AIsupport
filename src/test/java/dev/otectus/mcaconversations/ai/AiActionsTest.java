@@ -31,8 +31,9 @@ class AiActionsTest {
     void ordersParseIntoTypedActions() {
         assertEquals(List.of(new AiEffect.Action(AiActionKind.WORK, Optional.of(AiChore.CHOP), 20, "")),
                 parse("{\"type\":\"action\",\"do\":\"work\",\"task\":\"chop\",\"amount\":20}"));
-        assertEquals(List.of(new AiEffect.Action(AiActionKind.WORK, Optional.of(AiChore.MINE), 64, "")),
-                parse("{\"type\":\"action\",\"do\":\"work\",\"task\":\"mining\",\"amount\":500}"));
+        assertEquals(List.of(new AiEffect.Action(AiActionKind.WORK, Optional.of(AiChore.MINE), 256, "")),
+                parse("{\"type\":\"action\",\"do\":\"work\",\"task\":\"mining\",\"amount\":500}"),
+                "a work total is capped at 256 (a group shares it)");
         assertEquals(List.of(new AiEffect.Action(AiActionKind.GIVE, Optional.empty(), 5, "minecraft:oak_log")),
                 parse("{\"type\":\"action\",\"do\":\"give\",\"item\":\"oak_log\",\"amount\":5}"));
         assertEquals(List.of(new AiEffect.Action(AiActionKind.GO_HOME, Optional.empty(), 0, "")),
@@ -120,5 +121,37 @@ class AiActionsTest {
                 new AiEffect.Action(AiActionKind.TRADE, Optional.empty(), 0, ""),
                 new AiEffect.Action(AiActionKind.GIFT, Optional.empty(), 0, "")), ALL, facts)
                 .actions().stream().map(AiEffect.Action::kind).toList());
+    }
+
+    @Test
+    void helpersParseByNameOrEveryone() {
+        AiEffect.Action named = (AiEffect.Action) parse("{\"type\":\"action\",\"do\":\"work\",\"task\":\"chop\","
+                + "\"amount\":30,\"helpers\":[\"Bob\",\"Mara\"]}").get(0);
+        assertEquals(List.of("Bob", "Mara"), named.helpers());
+        assertEquals(30, named.amount());
+        AiEffect.Action all = (AiEffect.Action) parse("{\"type\":\"action\",\"do\":\"follow\",\"helpers\":\"todos\"}").get(0);
+        assertTrue(all.everyone());
+    }
+
+    @Test
+    void onlyWillingVillagersAndGroupableActionsGetHelpers() {
+        AiTurnFacts facts = new AiTurnFacts(RelationshipBand.FRIEND, 40, false, false, false, Set.of(), Set.of(), Set.of(),
+                Set.of(), Set.of(), 0, false, Set.of("work", "trade", "follow"), Set.of("chop"), Set.of("Bob"));
+        AiOutcomePlan plan = AiOutcomePlan.of(reply(
+                new AiEffect.Action(AiActionKind.WORK, Optional.of(AiChore.CHOP), 30, "", "", List.of("bob", "Zed")),
+                new AiEffect.Action(AiActionKind.TRADE, Optional.empty(), 0, "", "", List.of("Bob"))), ALL, facts);
+        assertEquals(List.of("bob"), plan.actions().get(0).helpers(), "Zed was not shown as willing");
+        assertTrue(plan.actions().get(1).helpers().isEmpty(), "trading is not a group action");
+
+        AiTurnFacts alone = facts(Set.of("follow"), Set.of(), false);
+        assertTrue(AiOutcomePlan.of(reply(new AiEffect.Action(AiActionKind.FOLLOW, Optional.empty(), 0, "", "",
+                List.of(AiEffect.Action.ALL))), ALL, alone).actions().get(0).helpers().isEmpty(), "nobody to bring in");
+    }
+
+    @Test
+    void aGroupTotalIsSharedEvenly() {
+        assertEquals(List.of(10, 10, 10), List.of(AiWork.share(30, 3, 0), AiWork.share(30, 3, 1), AiWork.share(30, 3, 2)));
+        assertEquals(List.of(4, 3, 3), List.of(AiWork.share(10, 3, 0), AiWork.share(10, 3, 1), AiWork.share(10, 3, 2)));
+        assertEquals(0, AiWork.share(0, 3, 0), "open-ended stays open-ended");
     }
 }

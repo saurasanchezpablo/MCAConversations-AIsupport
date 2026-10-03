@@ -137,6 +137,12 @@ final class AiErrands {
 
     static boolean start(Entity villager, ServerPlayer player, AiEffect.Action action, AiSocial.Turn turn,
                          String villagerName, long now) {
+        return start(villager, player, action, turn, villagerName, true, now);
+    }
+
+    /** As above; a helper in a group errand works without a bar of its own (the leader's shows the errand). */
+    static boolean start(Entity villager, ServerPlayer player, AiEffect.Action action, AiSocial.Turn turn,
+                         String villagerName, boolean showBar, long now) {
         BlockPos place = null;
         String label = action.kind().key();
         if (action.kind() == AiActionKind.GUIDE || action.kind() == AiActionKind.WAIT_AT) {
@@ -153,7 +159,9 @@ final class AiErrands {
         McaHandles.runInteraction(villager, player, AiChore.MINE.mcaCommand()); // MCA's brain stands aside
         ServerBossEvent bar = new ServerBossEvent(title(villagerName, action.kind(), label, 0, action.amount()),
                 BossEvent.BossBarColor.YELLOW, BossEvent.BossBarOverlay.PROGRESS);
-        bar.addPlayer(player);
+        if (showBar) {
+            bar.addPlayer(player);
+        }
         ERRANDS.put(villager.getUUID(), new Errand(villager.getUUID(), player.getUUID(), action.kind(), label, place,
                 action.item(), action.amount(), bar, now));
         return true;
