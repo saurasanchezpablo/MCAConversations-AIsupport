@@ -39,7 +39,8 @@ class AiActionsTest {
         assertEquals(List.of(new AiEffect.Action(AiActionKind.GO_HOME, Optional.empty(), 0, "")),
                 parse("{\"type\":\"action\",\"do\":\"go home\"}"));
         assertTrue(parse("{\"type\":\"action\",\"do\":\"work\"}").isEmpty(), "work needs a task");
-        assertTrue(parse("{\"type\":\"action\",\"do\":\"give\"}").isEmpty(), "give needs an item");
+        assertEquals(AiIntent.ALL, ((AiEffect.Action) parse("{\"type\":\"action\",\"do\":\"give\"}").get(0)).item(),
+                "give with no item means everything gathered");
         assertTrue(parse("{\"type\":\"action\",\"do\":\"set_house_on_fire\"}").isEmpty());
     }
 

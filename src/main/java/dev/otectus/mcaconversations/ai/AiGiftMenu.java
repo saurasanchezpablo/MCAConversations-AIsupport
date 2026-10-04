@@ -15,6 +15,8 @@ import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.ItemStack;
 
+import java.util.Optional;
+
 /**
  * The gift window: one row of slots above the player's own inventory. The player picks what to give
  * from anywhere in their inventory and drops it in; when the window closes, each stack is offered to
@@ -60,6 +62,13 @@ final class AiGiftMenu extends ChestMenu {
         for (int slot = 0; slot < gifts.getContainerSize(); slot++) {
             ItemStack stack = gifts.removeItemNoUpdate(slot);
             if (stack.isEmpty()) {
+                continue;
+            }
+            Optional<AiChore> waiting = AiWork.awaiting(villager.getUUID());
+            if (villager.isAlive() && waiting.isPresent() && AiWork.tool(waiting.get()).test(stack)) {
+                // The tool they asked for: a loan for the job, not a present for MCA to keep.
+                String name = McaCompat.getVillagerName(villager).orElse(villager.getName().getString());
+                AiActions.lend(villager, serverPlayer, name, java.util.List.of(stack));
                 continue;
             }
             ItemStack left = villager.isAlive() ? offer(serverPlayer, stack) : stack;

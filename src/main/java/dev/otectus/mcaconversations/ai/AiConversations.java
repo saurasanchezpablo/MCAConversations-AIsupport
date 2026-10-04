@@ -230,6 +230,10 @@ public final class AiConversations {
                     turn, now, day);
             // What the player asked the villager to do, by word: a window, an order, a task.
             AiActions.apply(villager, player, villagerName, plan.actions(), turn, now);
+            if (!opener && plan.actions().isEmpty() && policy.gameplayEffects()) {
+                // The villager agreed in words but the model forgot the action: do what was plainly asked.
+                fallbackAction(villager, player, villagerName, message, reply, plan, turn, now);
+            }
             // The player talked them into making peace with a neighbour.
             plan.reconcile().ifPresent(with -> {
                 try {
@@ -272,6 +276,40 @@ public final class AiConversations {
         } finally {
             SESSIONS.finish(villagerId, playerId, now);
         }
+    }
+
+    /**
+     * The player's request in their own words ({@link AiIntent}), carried out when the model's reply
+     * agreed (not a refusal, not negative) but carried no action, and only if it is one the villager
+     * was offered this turn.
+     */
+    private static void fallbackAction(Entity villager, ServerPlayer player, String villagerName, String message,
+                                       AiReply reply, AiOutcomePlan plan, AiSocial.Turn turn, long now) {
+        Optional<AiIntent.Intent> intent = AiIntent.detect(message);
+        if (intent.isEmpty() || reply.sentiment().negative()
+                || reply.deliveryOrDefault().intent() == dev.otectus.mcaconversations.voice.VoiceIntent.REFUSE) {
+            return;
+        }
+        AiIntent.Intent want = intent.get();
+        AiTurnFacts facts = turn.facts();
+        boolean grudge = facts.grudge() && !plan.forgive();
+        boolean offered = facts.offeredActions().contains(want.kind().key())
+                && (want.kind() != AiActionKind.WORK || want.chore().map(c -> facts.offeredChores().contains(c.key())).orElse(false))
+                && (!grudge || AiOutcomePlan.ACTIONS_DESPITE_GRUDGE.contains(want.kind()));
+        if (!offered) {
+            if (McaConversationsConfig.debugAi()) {
+                McaConversations.LOGGER.info("[ai] intent {} not offered to this villager now; left to the reply",
+                        want.kind());
+            }
+            return;
+        }
+        List<String> helpers = want.everyone() && AiOutcomePlan.GROUP_ACTIONS.contains(want.kind())
+                && !facts.helpers().isEmpty() ? List.of(AiEffect.Action.ALL) : List.of();
+        AiEffect.Action action = new AiEffect.Action(want.kind(), want.chore(), want.amount(), want.item(), "", helpers);
+        if (McaConversationsConfig.debugAi()) {
+            McaConversations.LOGGER.info("[ai] intent fallback: {} from \"{}\"", action, message);
+        }
+        AiActions.apply(villager, player, villagerName, List.of(action), turn, now);
     }
 
     /** The validated life effects of a reply; each one is checked again against the game as it is applied. */
@@ -458,7 +496,8 @@ public final class AiConversations {
 
     /** Keeps the villager facing the player, unless it is off working or following someone. */
     static void attend(Entity villager, ServerPlayer player, long now) {
-        if (AiWork.job(villager.getUUID()).isEmpty() && AiErrands.progressText(villager).isEmpty()) {
+        if (AiWork.job(villager.getUUID()).isEmpty() && AiErrands.progressText(villager).isEmpty()
+                && !AiBuild.busy(villager.getUUID())) {
             dev.otectus.mcaconversations.chat.VillagerAttention.hold(villager, player, now + ATTENTION_TICKS,
                     dev.otectus.mcaconversations.chat.AttentionLedger.Source.CONVERSATION);
         }
@@ -480,6 +519,9 @@ public final class AiConversations {
         Optional<UUID> partner = partner(player.getUUID(), now);
         if (partner.isPresent() && partner.get().equals(villager.getUUID())) {
             setPartner(player.getUUID(), villager.getUUID(), now);
+            if (!player.getMainHandItem().isEmpty()) {
+                handHeld(villager, player, now); // reaching out with something in hand: here, take it
+            }
             return; // already talking: just pick the conversation back up
         }
         net.minecraft.world.item.ItemStack held = player.getMainHandItem();
@@ -487,6 +529,22 @@ public final class AiConversations {
                 + (held.isEmpty() ? "" : ", holding " + held.getCount() + " "
                 + AiContextFormat.words(String.valueOf(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(held.getItem()))));
         open(player, villager, reason);
+    }
+
+    /**
+     * The player, mid-conversation, holds something out: a tool the villager needs (or any tool) is
+     * lent into their inventory; anything else is a gift, through MCA's own gift handling.
+     */
+    private static void handHeld(Entity villager, ServerPlayer player, long now) {
+        String name = McaCompat.getVillagerName(villager).orElse(villager.getName().getString());
+        net.minecraft.world.item.ItemStack held = player.getMainHandItem();
+        if (AiWork.isTool(held)) {
+            net.minecraft.world.item.ItemStack lent = held.copy();
+            player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, net.minecraft.world.item.ItemStack.EMPTY);
+            AiActions.lend(villager, player, name, List.of(lent));
+            return;
+        }
+        dev.otectus.mcaconversations.compat.mca.McaHandles.runInteraction(villager, player, "gift");
     }
 
     /** Hands the line to the villager's MCA message queue: they walk over and say it, MCA-style and voiced. */

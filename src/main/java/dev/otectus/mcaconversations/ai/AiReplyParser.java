@@ -295,7 +295,11 @@ public final class AiReplyParser {
                     return Optional.empty(); // "go work" with no task named is not an order the game can follow
                 }
                 boolean needsItem = kind.get() == AiActionKind.GIVE || kind.get() == AiActionKind.FETCH;
-                String item = needsItem ? itemRef(json).filter(i -> !i.startsWith("#")).orElse("") : "";
+                String rawItem = string(json, "item").map(i -> i.trim().toLowerCase(Locale.ROOT)).orElse("");
+                boolean everything = kind.get() == AiActionKind.GIVE && (rawItem.isEmpty() || rawItem.equals("all")
+                        || rawItem.equals("everything") || rawItem.equals("todo"));
+                String item = everything ? AiIntent.ALL : needsItem
+                        ? itemRef(json).filter(i -> kind.get() == AiActionKind.GIVE || !i.startsWith("#")).orElse("") : "";
                 if (needsItem && item.isEmpty()) {
                     return Optional.empty();
                 }

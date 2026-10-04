@@ -144,6 +144,16 @@ final class AiWork {
         };
     }
 
+    /** Whether this stack is the tool for any task (an axe, hoe, sword, fishing rod or pickaxe). */
+    static boolean isTool(ItemStack stack) {
+        for (AiChore chore : AiChore.values()) {
+            if (tool(chore).test(stack)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static boolean hasTool(Entity villager, AiChore chore) {
         Container inventory = McaHandles.inventory(villager);
         Predicate<ItemStack> tool = tool(chore);
@@ -233,8 +243,67 @@ final class AiWork {
         return true;
     }
 
+    /** Work asked for while the villager had no tool: it starts as soon as they are handed one. */
+    record Pending(UUID player, AiChore chore, int amount, long until) {
+    }
+
+    private static final Map<UUID, Pending> PENDING = new HashMap<>();
+    /** How long a villager waits for a tool before forgetting the request. */
+    static final long PENDING_TICKS = 6_000;
+
+    static void awaitTool(Entity villager, ServerPlayer player, AiChore chore, int amount, long now) {
+        PENDING.put(villager.getUUID(), new Pending(player.getUUID(), chore, amount, now + PENDING_TICKS));
+    }
+
+    /**
+     * The villager was just handed something: if they were waiting for a tool to do a job and now have
+     * it, they get going. Returns whether the job started.
+     */
+    static boolean resumeIfReady(Entity villager, ServerPlayer player, String villagerName, long now) {
+        Pending pending = PENDING.get(villager.getUUID());
+        if (pending == null || !pending.player().equals(player.getUUID()) || now > pending.until()) {
+            PENDING.remove(villager.getUUID());
+            return false;
+        }
+        if (!hasTool(villager, pending.chore())) {
+            return false;
+        }
+        PENDING.remove(villager.getUUID());
+        return start(villager, player, pending.chore(), pending.amount(), villagerName, now);
+    }
+
+    static Optional<AiChore> awaiting(UUID villager) {
+        return Optional.ofNullable(PENDING.get(villager)).map(Pending::chore);
+    }
+
+    /**
+     * "Bring me what you have": a villager working for this player stops, comes back and hands it over,
+     * and with them everyone else on the same group job. False when they are not working for the player.
+     */
+    static boolean bringBack(Entity villager, ServerPlayer player, long now) {
+        Job job = JOBS.get(villager.getUUID());
+        if (job == null || !job.player.equals(player.getUUID())) {
+            return false;
+        }
+        for (Job j : JOBS.values()) {
+            if ((j == job || (job.group != null && j.group == job.group)) && j.phase == Phase.WORKING) {
+                Entity worker = player.serverLevel().getEntity(j.villager);
+                if (worker != null) {
+                    McaHandles.runInteraction(worker, player, "stopworking");
+                    McaHandles.runInteraction(worker, player, "FOLLOW");
+                }
+                j.phase = Phase.RETURNING;
+                j.phaseSince = now;
+            }
+        }
+        return true;
+    }
+
     /** Ends the villager's job; with {@code toldToStop}, also tells MCA to drop the chore. */
     static void stop(UUID villager, boolean toldToStop) {
+        if (toldToStop) {
+            PENDING.remove(villager);
+        }
         Job job = JOBS.remove(villager);
         if (job != null) {
             release(job);
@@ -523,5 +592,6 @@ final class AiWork {
     static void reset() {
         JOBS.values().forEach(job -> job.bar.removeAllPlayers());
         JOBS.clear();
+        PENDING.clear();
     }
 }

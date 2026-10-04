@@ -117,8 +117,12 @@ final class AiActionContext {
         if (trusted) {
             actions.add(AiActionKind.INVENTORY);
         }
+        // Anyone not hostile can be asked; the villager (the model) decides whether they want to.
+        boolean willing = adultish && band != RelationshipBand.HOSTILE && band != RelationshipBand.TENSE;
         if (trusted && adultish) {
             actions.add(AiActionKind.ARMOR);
+        }
+        if (willing) {
             actions.add(AiActionKind.WORK);
         }
         if (working) {
@@ -127,11 +131,11 @@ final class AiActionContext {
         if (romance) {
             actions.add(AiActionKind.DATE);
         }
-        if (trusted && adultish) {
+        if (willing) {
             actions.add(AiActionKind.BUILD);
         }
         Map<String, Integer> carried = carried(inventory);
-        if (band.isAtLeast(RelationshipBand.ACQUAINTANCE) && !carried.isEmpty()) {
+        if (willing && (!carried.isEmpty() || AiWork.job(villager.getUUID()).isPresent())) {
             actions.add(AiActionKind.GIVE);
         }
         // Errands: offered only when there is something to do them with.
@@ -146,7 +150,7 @@ final class AiActionContext {
             actions.add(AiActionKind.GUIDE);
             actions.add(AiActionKind.WAIT_AT);
         }
-        if (trusted && adultish) {
+        if (willing) {
             if (loose > 0) {
                 actions.add(AiActionKind.PICK_UP);
             }
@@ -258,12 +262,15 @@ final class AiActionContext {
                 offers.add("{\"type\": \"action\", \"do\": \"work\", \"task\": \"chop|harvest|hunt|fish|mine\", "
                         + "\"amount\": 0-64} when sent to work (chop = cut trees, harvest = farm crops, hunt, fish, "
                         + "mine = dig stone and ore). amount = how much to bring back (0 = until told to stop). "
-                        + "Each needs its tool in your inventory; without it, say so and ask for one.");
+                        + "Each needs its tool (axe, hoe, sword, fishing rod, pickaxe); without it STILL use the action: the "
+                        + "game asks the player to lend you one and you start as soon as you have it. You may turn down "
+                        + "someone you barely know, but if you agree, always include the action.");
             }
             if (actions.contains(AiActionKind.GIVE)) {
-                offers.add("{\"type\": \"action\", \"do\": \"give\", \"item\": \"minecraft:item_id\", \"amount\": 1-64} "
-                        + "to hand " + playerName + " something you carry (only what you carry: "
-                        + String.join(", ", carriedIds(inventory)) + ")");
+                offers.add("{\"type\": \"action\", \"do\": \"give\", \"item\": \"all\" or \"minecraft:item_id\", "
+                        + "\"amount\": 1-64} when " + playerName + " asks for what you gathered or for something you carry "
+                        + "(\"all\" = everything you gathered; if you are working for them you stop and bring it). You carry: "
+                        + String.join(", ", carriedIds(inventory)));
             }
         } else if (grudge) {
             offers.add("{\"type\": \"action\", \"do\": \"move|go_home|stop_work\"} only; you do no favours while hurt");

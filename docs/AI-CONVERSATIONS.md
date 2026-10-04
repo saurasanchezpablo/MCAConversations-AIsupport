@@ -544,6 +544,30 @@ The diary lists:
 - quarrels, secrets entrusted, and childhood memories;
 - what people say about you.
 
+### Requests that always land
+- **Who can be asked:** tasks and errands (work, give, pick up, store, fetch, breed, cook, build) are
+  offered to every adult or teen villager who is not hostile or tense. The model decides whether that
+  villager is willing. Before, only friends and family could be asked, so other villagers agreed and
+  then stood still.
+- **Safety net (`AiIntent`):** when the model agrees but leaves out the action, the player's own words
+  decide. The detector reads Spanish and English requests ("ve a talar 20 troncos", "toma, te doy esto",
+  "dame lo que has recogido", "constrúyeme una cabaña", "go fishing"). It then carries out the request,
+  but only if all of these hold:
+  - the reply is not a refusal and not negative;
+  - the action was offered this turn.
+
+  It ignores ability questions ("¿sabes pescar?"), negations and chat that merely mentions work.
+- **No tool:** the villager asks to borrow one, and a "Lend a tool" window opens. The window puts
+  items into the villager's own inventory, not an MCA gift, and the job starts as soon as they have the
+  tool. Other ways to lend the tool:
+  - put it in the gift window: the tool the villager is waiting for is lent, not given;
+  - right-click the villager while holding it in mid-conversation.
+- **"Give me what you gathered":** `give` with `item: "all"` (or no item). A villager working for the
+  player stops, and everyone on the same group job comes back and hands it over. Otherwise the
+  villager hands over everything they gathered, tools excepted. Tags (`#minecraft:logs`) work too.
+- **Right-click while holding an item, mid-conversation:** a tool is lent; anything else is gifted
+  through MCA's own gift handling.
+
 ## Voice (acting TTS)
 
 Villagers speak their lines aloud with acting: the emotion, what the line is for, their mood, grief,

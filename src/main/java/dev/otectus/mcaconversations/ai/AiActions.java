@@ -69,13 +69,7 @@ final class AiActions {
                 McaHandles.runInteraction(villager, player, "gohome");
             }
             case ARMOR -> McaHandles.runInteraction(villager, player, "armor");
-            case WORK -> action.chore().ifPresent(chore -> {
-                if (!AiWork.start(villager, player, chore, action.amount(), villagerName, now)) {
-                    AiLines.sayLater(villager, player, AiLines.variant("work_no_tool",
-                            Component.translatable("mcaconversations.ai.tool." + chore.key())), villagerName, now, 20,
-                            AiEmotion.NEUTRAL, VoiceIntent.STATEMENT);
-                }
-            });
+            case WORK -> action.chore().ifPresent(chore -> work(villager, player, villagerName, chore, action.amount(), now));
             case STOP_WORK -> {
                 AiWork.stop(villager.getUUID(), true);
                 AiErrands.stop(villager.getUUID());
@@ -89,10 +83,109 @@ final class AiActions {
                             AiErrands.startCook(villager, player, handed, villagerName, player.serverLevel().getGameTime()));
                 }
             });
-            case GIVE -> give(villager, player, action.item(), Math.max(1, action.amount()));
+            case GIVE -> handOver(villager, player, villagerName, action.item(), action.amount(), now);
             case BUILD -> openBuild(villager, player, action, List.of(), now);
             case DATE -> AiDates.agree(villager, player, villagerName, action, turn, now);
         }
+    }
+
+    /**
+     * Sends the villager to work. Without the tool for it, they say so and a window opens to lend them
+     * one; the moment they have it, they get going.
+     */
+    static void work(Entity villager, ServerPlayer player, String villagerName, AiChore chore, int amount, long now) {
+        if (AiWork.start(villager, player, chore, amount, villagerName, now)) {
+            return;
+        }
+        if (AiWork.hasTool(villager, chore)) {
+            return; // MCA refused the chore itself; nothing more to do here
+        }
+        AiWork.awaitTool(villager, player, chore, amount, now);
+        AiLines.sayLater(villager, player, AiLines.variant("work_no_tool",
+                        Component.translatable("mcaconversations.ai.tool." + chore.key())), villagerName, now, 20,
+                AiEmotion.NEUTRAL, VoiceIntent.QUESTION);
+        AiTasks.schedule(now + SCREEN_DELAY_TICKS + 20, () -> {
+            if (villager.isAlive() && !player.hasDisconnected() && villager.distanceTo(player) <= 8) {
+                AiHandoverMenu.open(player, villager, "mcaconversations.ai.tool_title", 1,
+                        handed -> lend(villager, player, villagerName, handed));
+            }
+        });
+    }
+
+    /**
+     * Puts what the player hands over straight into the villager's own inventory (a loan, not a gift
+     * MCA would consume), and starts the job they were waiting for if they now have the tool. Whatever
+     * does not fit is given back. Returns true once anything was taken.
+     */
+    static boolean lend(Entity villager, ServerPlayer player, String villagerName, List<ItemStack> handed) {
+        Container inventory = McaHandles.inventory(villager);
+        if (inventory == null) {
+            return false;
+        }
+        boolean took = false;
+        for (ItemStack stack : handed) {
+            int before = stack.getCount();
+            ItemStack rest = AiErrands.insert(inventory, stack.copy());
+            took |= rest.getCount() < before;
+            if (!rest.isEmpty()) {
+                player.getInventory().placeItemBackInInventory(rest);
+            }
+        }
+        inventory.setChanged();
+        long now = player.serverLevel().getGameTime();
+        if (!AiWork.resumeIfReady(villager, player, villagerName, now)) {
+            AiWork.awaiting(villager.getUUID()).ifPresentOrElse(chore -> AiLines.say(villager, player,
+                            AiLines.variant("work_no_tool", Component.translatable("mcaconversations.ai.tool." + chore.key())),
+                            villagerName, AiEmotion.NEUTRAL, VoiceIntent.STATEMENT),
+                    () -> AiLines.say(villager, player, AiLines.variant("tool_thanks"), villagerName, AiEmotion.GRATEFUL,
+                            VoiceIntent.THANK));
+        }
+        return true;
+    }
+
+    /**
+     * "Give me what you gathered": a villager working for the player comes back with it; otherwise
+     * they hand over what they carry, everything gathered ({@code all}) or the item named.
+     */
+    static void handOver(Entity villager, ServerPlayer player, String villagerName, String item, int amount, long now) {
+        if ((item.isEmpty() || item.equals(AiIntent.ALL)) && AiWork.bringBack(villager, player, now)) {
+            return;
+        }
+        int given = item.isEmpty() || item.equals(AiIntent.ALL) ? giveGathered(villager, player)
+                : give(villager, player, item, Math.max(1, amount == 0 ? 64 : amount));
+        if (given == 0) {
+            AiLines.sayLater(villager, player, AiLines.variant("give_nothing"), villagerName, now, 20,
+                    AiEmotion.NEUTRAL, VoiceIntent.STATEMENT);
+        }
+    }
+
+    /** Hands over everything the villager gathered (what any task brings in), keeping their tools. */
+    static int giveGathered(Entity villager, ServerPlayer player) {
+        Container inventory = McaHandles.inventory(villager);
+        if (inventory == null) {
+            return 0;
+        }
+        int given = 0;
+        for (int i = 0; i < inventory.getContainerSize(); i++) {
+            ItemStack stack = inventory.getItem(i);
+            if (stack.isEmpty() || stack.isDamageableItem()) {
+                continue;
+            }
+            boolean gathered = false;
+            for (AiChore chore : AiChore.values()) {
+                gathered |= AiWork.yieldOf(chore).test(stack);
+            }
+            if (!gathered) {
+                continue;
+            }
+            ItemStack taken = inventory.removeItemNoUpdate(i);
+            given += taken.getCount();
+            if (!player.getInventory().add(taken) && !taken.isEmpty()) {
+                player.drop(taken, false);
+            }
+        }
+        inventory.setChanged();
+        return given;
     }
 
     /** The other villagers this action brings in, resolved from exactly the names the model was shown. */
@@ -187,17 +280,16 @@ final class AiActions {
         });
     }
 
-    /** Hands over up to {@code amount} of one item from the villager's own inventory. Nothing is created. */
+    /** Hands over up to {@code amount} of one item (or {@code #tag}) from the villager's own inventory. Nothing is created. */
     static int give(Entity villager, ServerPlayer player, String itemId, int amount) {
         Container inventory = McaHandles.inventory(villager);
-        ResourceLocation id = ResourceLocation.tryParse(itemId);
-        if (inventory == null || id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
+        if (inventory == null || !AiPromises.itemExists(itemId)) {
             return 0;
         }
         int left = amount;
         for (int i = 0; i < inventory.getContainerSize() && left > 0; i++) {
             ItemStack stack = inventory.getItem(i);
-            if (stack.isEmpty() || !id.equals(BuiltInRegistries.ITEM.getKey(stack.getItem()))) {
+            if (stack.isEmpty() || !AiPromises.matches(itemId, stack)) {
                 continue;
             }
             ItemStack taken = stack.split(Math.min(left, stack.getCount()));
