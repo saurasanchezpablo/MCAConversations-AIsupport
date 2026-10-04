@@ -3,6 +3,7 @@ plugins {
     id 'eclipse'
     id 'java-library'
     id 'net.neoforged.moddev' version '2.0.141'
+    id 'com.modrinth.minotaur' version '2.10.0'
 }
 
 // Loader and game version both live in the artifact name and the mod version, so a 1.21.1
@@ -473,7 +474,8 @@ tasks.named('processResources', ProcessResources).configure {
             mca_version: mca_version, mca_version_range: mca_version_range,
             mod_id: mod_id, mod_name: mod_name, mod_license: mod_license,
             mod_version: project.version.toString(), network_protocol: network_protocol,
-            mod_authors: mod_authors, mod_description: mod_description,
+            mod_authors: mod_authors, mod_description: mod_description, mod_credits: mod_credits,
+            mod_display_url: mod_display_url, mod_issue_tracker_url: mod_issue_tracker_url,
     ]
     inputs.properties replaceProperties
 
@@ -646,4 +648,31 @@ tasks.named('build').configure {
 tasks.named('jar').configure {
     exclude 'dev/otectus/mcaconversations/ai/AiGameTests*'
     exclude 'data/mcaconversations/structure/ai_field.nbt'
+}
+
+// Publishing to Modrinth. Nothing is uploaded by a normal build: run
+//   MODRINTH_TOKEN=<personal access token> ./gradlew modrinth             (upload this version)
+//   MODRINTH_TOKEN=<personal access token> ./gradlew modrinthSyncBody     (update the project page from MODRINTH.md)
+// The version's changelog is the topmost section of CHANGELOG.md.
+modrinth {
+    token = System.getenv('MODRINTH_TOKEN')
+    projectId = project.modrinth_project
+    versionNumber = project.version.toString()
+    versionName = "${project.mod_name} ${project.mod_version} (NeoForge ${project.minecraft_version})"
+    versionType = project.modrinth_version_type
+    uploadFile = tasks.named('jar')
+    gameVersions = [project.minecraft_version]
+    loaders = ['neoforge']
+    changelog = provider {
+        def lines = file('CHANGELOG.md').readLines()
+        int start = lines.findIndexOf { it.startsWith('## ') }
+        int end = lines.findIndexOf(start + 1) { it.startsWith('## ') }
+        (start < 0 ? lines : lines.subList(start + 1, end < 0 ? lines.size() : end)).join('\n').trim()
+    }
+    syncBodyFrom = provider { file('MODRINTH.md').text }
+    dependencies {
+        required.project 'minecraft-comes-alive-reborn'
+        // Same mod id as the original: one replaces the other, they cannot be installed together.
+        incompatible.project 'mca-conversations'
+    }
 }

@@ -1,0 +1,304 @@
+# MCA: Conversations
+
+![Minecraft](https://img.shields.io/badge/Minecraft-1.21.1-green)
+![NeoForge](https://img.shields.io/badge/NeoForge-21.1.x-orange)
+![Requires](https://img.shields.io/badge/Requires-MCA%20Reborn%207.7.36-blue)
+![License](https://img.shields.io/badge/License-GPL--3.0-lightgrey)
+![Status](https://img.shields.io/badge/Status-alpha-red)
+
+Deeper, less repetitive villager conversations for **Minecraft Comes Alive: Reborn**.
+
+Shared gameplay and content track the Forge 1.20.1 line at 1.8.0. The parity manifest for each release
+lives in `tools/parity/`.
+
+## Features (1.8.0)
+
+- **A first meeting sounds like one.** A villager who has never met you says a plain hello rather
+  than greeting you by name like an old friend; someone you have met says "hello again"; a regular,
+  a friend, a confidant, a spouse, a relative and somebody you have fallen out with each get a
+  greeting of their own, in their own personality's voice.
+- **Friendship has to be lived.** How close a villager treats you now needs separate days of actually
+  talking and the familiarity you have built, not just hearts — and being their parent, child or
+  sibling finally counts as family. Worlds from before this version, and MCA worlds adding
+  Conversations for the first time, keep the friendships they had.
+- **Walking through the village is quieter.** Friends greet you more often than strangers, one
+  greeting at a time, and a villager who says hello as you pass keeps walking unless you answer.
+- **Nobody knows your name before you have met.** Strangers greet and see you off without it, a
+  respected stranger gets courtesy and nothing presumed, and partners and family have greetings of
+  their own — your child greets you as a parent, your parent as their grown child. Every personality
+  voices all of these greetings in character.
+- **Townstead villagers live their Townstead lives in conversation.** With Townstead installed, a
+  *Life here* category of eight topics — how they are keeping, their day, their trade, the years,
+  their people, their places, what the village is becoming, the calendar — answers to their real
+  needs, shift, trade level, building, village spirit and calendar. Villagers at work or worn out put
+  off long talks in chat, collapsed ones do not greet you, a gift only counts as having helped when it did,
+  the village gossips about crises, promotions, birthdays and new buildings, and a reply can play a
+  heart-neutral reaction (with Emotecraft). Without Townstead, none of it appears.
+
+## Features (1.7.3)
+
+- **Topics that belong to a kingdom.** With Ultima Kingdoms installed (it has no NeoForge 1.21.1
+  build yet, so on this port the integration waits for it), a topic can be offered only to
+  villagers of the right kingdom, judged by where they live or where they came from, and only while
+  the player stands well enough with its faction. The restriction holds on every way into a
+  conversation — the dialogue screen, a numbered reply, typed chat, the dynamic hub, a crafted packet —
+  and a gate Ultima cannot answer hides what it guards.
+- **Guild contacts.** A villager appointed to speak for a guild can explain what the guild does and
+  put in a request for an introduction or for its commissions. Ultima decides; the villager relays
+  its answer to you alone and never repeats where an introduction leads.
+
+## Features (1.7.2)
+
+- **Villagers remark on what they know you for.** With MCA: Reputation 0.6.0, a villager who has
+  heard that you stood your ground, or that somebody got hurt, can say so — filtered through what
+  *that villager* knows, and never mistaken for liking you.
+- **An apology is paid for once.** A conversation deed is recorded against the decision and the exact
+  grievance it answers, not against whoever you said it to, and a fuller apology supersedes a partial
+  one instead of stacking on it.
+
+## Features (1.7.1)
+
+- **Villagers stay put and face you** for the whole of a discussion, including minutes of reading,
+  and are handed straight back to their schedule when it ends.
+- **Sixteen blocks to keep talking**, with a second's grace out to twenty-four; nothing can be *done*
+  from out of range, and opening a conversation still takes MCA's ordinary reach.
+- **An attack ends the conversation for good**, and the villager is free to flee; a guard still
+  fights back unless the server asks otherwise.
+- **Another player can take the villager over** cleanly: the first player's window closes saying so,
+  and nothing from it can reach the new conversation. The choice channel is protocol 4, so update
+  client and server together.
+
+## Features (1.7.0)
+
+- **The restrained card is now the one you get.** New installations default to
+  `dialogueMenuStyle = MINIMAL` and `motionMode = REDUCED`: the same numbered menu and the same
+  input, drawn as one flat panel with a hairline above the answers, a plain numeral, and a focus
+  mark in the row's gutter that moves no text. The full card is unchanged and one setting away.
+  Upgrading changes nothing — an existing `mcaconversations-client.toml` already states both keys,
+  and a stored `RESPONSIVE` or `FULL` is read as a choice, not as an old default.
+- **Reduced motion means reduced motion.** Under `REDUCED` the only animation left is a short fade
+  when the menu genuinely opens and closes. Focus, selection, expanding a clipped answer and turning
+  the page are immediate. The entrance belongs to the menu rather than to each question, so a pause
+  between two turns of a conversation is the card waiting, not the card closing and reopening.
+  As before, this governs Conversations' own effects; Townstead keeps its own screen, camera and
+  typewriter.
+
+- **The card can show its own working.** Two overlays open inside the response viewport without
+  moving anything: `H` lists the lines this client actually received and the responses it sent, each
+  with its real outcome, bounded and forgotten when you disconnect; `P` changes the menu style,
+  motion, reveal, interface sounds and control hints in place, and says plainly when the legacy
+  `numberedResponses = false` switch is overriding the style you configured. Neither can select a
+  response, and neither claims Townstead's own screen.
+- **An offered topic that cannot be opened says why.** Ask a villager about something their own menu
+  was showing you and you get a sentence — they are working, you already talked about it today, they
+  are not ready — instead of silence. The sentence is a description of a refusal that already
+  happened, never permission: selecting a topic still goes through the server's ordinary gate, and
+  nothing you have not been shown is ever mentioned.
+
+## Features (1.1.0)
+
+- **Your reply is what shapes the relationship (new)** — asking a villager how their day went used
+  to hand you hearts for the click. It doesn't any more. Now they *answer*, and **you** choose what
+  to say back, and that is what lands. Sit with someone's bad day and offer to take something off
+  their hands, and you've earned something. Tell them everyone has bad days and then double down
+  when they bristle, and you've lost it — and apologising settles the air without buying the hearts
+  back, because a slight isn't undone by saying sorry. **All 28 catalogued topics are converted** —
+  from the weather and what's for supper up through fears, regrets, secrets, and the spouse and
+  family topics — and no topic pays hearts for being clicked any more.
+- **Conversations that remember (new)** — tell a villager you'll stand with them and they hold you
+  to it a week later, by name. Get them to crack all the way open about what frightens them and
+  they answer differently ever after, because they know you remember. Press them after they've said
+  no and that is permanent: the topic opens warily from then on, and the only way back is an honest
+  apology that doesn't erase it.
+- **The same conversation by typing (new)** — every one of those choices is reachable in chat, in
+  your own words. When a villager puts a decision to you, the options come with it, numbered, so you
+  can answer `2` if you'd rather pick than phrase. While you're mid-decision, an idle "how's the
+  weather" can't be mistaken for your answer.
+
+## Features (1.0.0)
+
+- **Chat mode** — talk to villagers by just *typing*. `Hey Coralia! How's your day going?` in
+  the vanilla chat box gets an answer in chat, in her voice, through the **same dialogue engine** as
+  the GUI — identical heart gates, cooldowns, moods, dialogue checks, memories, and gossip. No
+  AI/LLM: matching is deterministic, datapack-driven (keywords + phrases with typo tolerance,
+  synonyms, negation awareness), and unit-tested. Address villagers by name, by looking at them, or
+  just keep talking — your conversation partner stays "sticky" for follow-ups. Multi-turn depth
+  works too: open up their fears, then answer *"You could face it — I'd stand with you."*
+- **A living village** — villagers *may* greet you as you pass (a personality-weighted daily
+  coin flip — the peppy farmer usually says hi, the introverted librarian rarely; villagers who dislike you
+  brush you off instead). Open the chat box and nearby villagers stop and turn to you expectantly;
+  your conversation partner stays put, facing you, until a while after the conversation lapses —
+  and still flees danger. Say *"bye"* or *"stop talking"* and they respect it, per villager.
+  Shout a question in the square and the villagers it applies to answer, staggered. Since a promise
+  comes due, an unacknowledged rupture, an open thread or a change in the villager's own situation
+  all take priority over a plain hello on the same approach roll (`InitiativePlanner`, wired through
+  `GreetOnApproach`) — the villager says that one line instead of hello. Both a greeting and a
+  planner initiative go through the same `InitiativeGate.decide`/`record`; only the budget weight
+  differs, so raising it never spends the greeting's one daily chance: a greeting is weighed as a
+  bark and spends nothing, while a planner initiative is weighed as a full initiative and spends the
+  day's one allowance.
+  Optional radius-local chat (**EXPERIMENTAL**, default off)
+  keeps conversations neighborhood-scale.
+- **A relationship deeper than hearts** — every villager quietly tracks how much they *trust*
+  and *respect* you, how *warm* they feel around you, recent *tension*, and how long you've known
+  each other. Hearts stay MCA's one visible number — the vector never shows and never grants
+  hearts; it decides which replies open up and how they land. It drifts back toward the villager's
+  personality baseline over days, is capped against farming, and is per-player.
+- **Dialogue checks** — the deepest stances resolve like a CRPG check with four outcomes:
+  a *crit* opens the villager further than asked, a *success* lands, a *partial* half-lands, a
+  *rebuff* misfires in character (and always exits gracefully). Outcomes come from the relationship,
+  hearts, mood, and a **seeded** roll — closing and re-opening the screen never re-rolls; coming
+  back tomorrow might. Piloted on the fears topic: try *"You could face it. I'd stand with you."*
+- **Chat, replaced** — MCA's own "Chat" button now opens the Conversations hub: how their day
+  *actually* went, whether they like their work, food, the neighbors, their life story, dreams,
+  fears, feelings, regrets, and secrets. (Reachable via `hubEntryMode`; see CONFIG.md.)
+- **Category menu** — the hub opens on six clean categories (Chit-Chat, Profession, Village,
+  Events, Personal, Relationships) instead of one long list; pick one to see its starters, with
+  "Something else." to step back. Categories with nothing to offer are hidden — Relationships
+  only appears for spouses and family.
+- **Personalized per villager** — work talk is profession-aware (hand-written lines for all
+  vanilla trades plus every profession mod in the pack: MCA, More Villagers, Ars Nouveau, Chef's
+  Delight, Ice and Fire, Vampirism, Werewolves — and a self-personalizing generic line for any
+  other mod's professions); food talk respects MCA traits (vegetarian, lactose intolerance, ...);
+  children and teens answer in their own voice. **Every personality has a flavored overlay** — all 14 MCA
+  rolls on 1.21.1, plus `athletic`, `confident` and `peppy` (dropped from MCA's roster but still
+  possible on an upgraded save) and the four older spellings (`witty`/`shy`/`lazy`/`grumpy`) kept
+  as aliases of their successors, so a villager keeps its voice across an MCA upgrade. 21 overlay
+  namespaces in all. Each covers the
+  high-traffic lines (greetings, check-ins, day/work/village, the topic openers, deflects, gossip and
+  the personality-voiced chat-mode deflections), each with 2–3 variants — a crabby villager and a
+  peppy one answer the same question in visibly different words. **New in 1.2.0:** the overlays reach
+  the first *reply* as well as the opener, so accepting sympathy, accepting help, being promised
+  support and being asked again days later all sound like the villager saying them — not like one
+  narrator speaking for everyone after the first sentence
+
+## Requirements
+
+Minecraft 1.21.1 · NeoForge 21.1.234+ · Java 21 · requires **MCA Reborn** for NeoForge (the exact
+build is `mca_version` in `gradle.properties`).
+
+The MCA range is deliberately narrow (`mca_version_range` in `gradle.properties`). This mod mixes into MCA
+internals, so every release it claims to support has to be tested against, not assumed. If you are
+on a different 7.7.x build and want it supported, say so rather than editing the range yourself —
+a mixin that silently stops applying looks like a missing feature, not a version mismatch.
+
+> **This jar is for NeoForge only and will not load on Forge 1.20.1.** The 1.20.1 Forge line is a
+> separate download (`mcaconversations-<version>.jar`); this one is
+> `mcaconversations-neoforge-<version>+1.21.1.jar`. They are not interchangeable in either direction.
+
+> **Back up your world before upgrading.** Conversations migrates its own player data
+> automatically (see below), but MCA 7.7.36 also changes how it persists personalities and traits
+> relative to older 7.7 builds, and that conversion is not ours to undo.
+
+> **Architectury is not a dependency.** MCA's 1.21.1 NeoForge artifact dropped it entirely, and
+> Conversations has never referenced it.
+
+### Upgrading a 1.20.1 world
+
+Your remembered gifts and your chat-mode choice were stored as Forge capabilities. NeoForge does
+not read those, so the first time each player loads, Conversations imports them from the old
+`ForgeCaps` block into the equivalent data attachment. It runs once per player, never overwrites
+data you have already made on 1.21.1, and logs one line per player when it fires.
+
+The three world-level files — `mcaconversations_dispositions.dat`, `mcaconversations_gossip.dat`
+and `mcaconversations_progress.dat` — keep their names and their contents, so dispositions, gossip
+and conversation progress carry over untouched.
+
+MCA: Reputation integration is live on this loader again: this release compiles against the NeoForge
+1.21.1 build of that mod's 0.6.0 compile-only API jar. Without MCA: Reputation installed, every
+reputation-aware condition still scores zero and the reputation template variables fall back to their
+existing text, exactly as they do on an install without the mod. Nothing else changes.
+
+### Languages
+
+**English (`en_us`)** and **Brazilian Portuguese (`pt_br`)** — both complete: UI strings, the full
+base dialogue pool, every personality overlay, the age voices and the whole chat-mode vocabulary
+(5,524 translated strings per locale, across 23 namespaces). MCA gates per-personality dialogue to
+`en_us` alone; a narrow client-only hook widens that gate to the locales this mod ships complete
+overlays for, while preserving MCA's voice-pack and online-TTS restrictions untouched.
+
+Optional: **MCA: Quests** (quest-aware lines), **MCA: Reputation** (public standing, villagers
+telling each other what you have done, and — from 0.6.0 — remarking on what *they* know you for),
+**MCA: Capitals** (villages that are capitals speak
+about their sovereign, heirs and court; court changes seed village gossip), **Serene Seasons**
+(real seasons; calendar fallback otherwise), **Townstead** (needs, schedules, trades, life stages,
+roots, buildings, village spirit and calendar become conversation state, with a *Life here* topic
+category, reactions, gossip, and numbered choices in its RPG dialogue screen; **Emotecraft** is needed
+for reactions to play) and **Ultima Kingdoms** (kingdom-gated topics
+and guild contacts; inert on this port until Ultima Kingdoms ships for NeoForge 1.21.1) — all soft
+dependencies; the mod works fully without them.
+
+## How it works
+
+MCA's dialogue system loads datapack JSON from any namespace and merges same-named questions, so
+most of Conversations is data: `data/mcaconversations/dialogues/*.json` adds new questions and extends MCA's
+`main`/`greet`. The Java side registers custom dialogue conditions/actions
+(`conversations_gossip`, `conversations_disposition`, `conversations_check`, `conversations_say`, ...) into
+MCA's public registries — no runtime patching of MCA except a set of small, narrowly scoped mixins,
+all but one `require = 0` (`mcaconversations.mixins.json`'s `defaultRequire`), so a target that
+stops matching a future MCA build is a startup warning, not a crash — the exception is the
+1.20.1-save import (`PlayerLegacyDataMixin`), pinned to vanilla's own `Player#readAdditionalSaveData`
+at `require = 1`. Eight apply to common code — the
+Chat→hub redirect (`DialoguesMixin`), a gift observer for the gratitude state
+(`BreedableRelationshipMixin`), chat mode's dialogue-payload-to-chat redirect (`NetworkHandlerMixin`),
+a GUI submission guard (`InteractionDialogueMessageMixin`), the hub/age answer-list filter
+(`QuestionMixin`), a guard on MCA's tokenless interaction-close request so a player who does not own a
+managed discussion cannot end it (`McaInteractionCloseMixin`), a cancel of
+`InteractTask#followPlayer` while a managed hold owns the villager (`InteractTaskMovementMixin`),
+and the 1.20.1-save import (`PlayerLegacyDataMixin`) — and six to the client: a
+digit-shortcut adapter for vanilla's own chat screen (`ChatScreenChoiceMixin`) and one for MCA's own
+`InteractScreen` (`InteractScreenChoiceMixin`),
+the personality-locale gate widener (`MCAClientMixin`), and three Townstead-cooperation mixins
+(`TownsteadChoicePanelMixin`, `TownsteadRpgDialogueScreenMixin`, and
+`TownsteadEmotionTagOverridesMixin`, which lets its typewriter find Conversations' emotion tags). Chat mode's matcher is a
+second *frontend* to the same engine: free text resolves to the exact `(question, answer)` a GUI click
+would send, so parity is structural, not re-implemented; its intents live in
+`data/<any-namespace>/chat_intents/*.json` and are fully datapack-extensible (including synonym packs).
+
+Client-side code is not limited to a typing ping: `client/` holds 42 files. The typing tracker
+(`ChatTypingTracker`) is still the only one that reports anything back to the server — it edge-detects
+the vanilla chat screen so nearby villagers can turn toward a typing player — but the rest render or
+read local state: `client/dialogue` (32 files) builds the three configurable dialogue styles
+(`RESPONSIVE`, `MINIMAL`, `MCA_ORIGINAL` — `McaConversationsConfig.DialogueMenuStyle`), with portrait
+rendering, paging, digit-key shortcuts, transition-only narrator output and a per-character text
+reveal; `client/dialogue/dev` (3 files) is a dev-only in-game preview screen and command for the
+dialogue card; `client/townstead` (3 files) let Townstead's own choice panel accept the same
+numbered-digit shortcuts through a reflective adapter, without linking Townstead's classes in, and
+index Conversations' emotion-tag sidecar for Townstead's typewriter.
+
+The relationship vector lives in its own versioned world save data and
+**never touches hearts**: MCA's hearts remain the only authoritative, visible relationship number,
+and every heart change still flows through MCA's own dialogue actions. See
+[DATAPACK.md](DATAPACK.md) for the full JSON vocabulary (datapack authors can build on it, including
+their own checked stances) and [CONFIG.md](CONFIG.md) for configuration.
+
+## Status
+
+Alpha. Pure logic (gossip log, diffing, templates, content lint, the player-data migration) is
+unit-tested, and the suite now runs with real Minecraft classes on the classpath.
+
+Unlike the 1.20.1 line, **`runClient` and `runServer` are valid tests of MCA integration**: MCA's
+1.21.1 NeoForge jar uses official Mojang names, so it loads as a normal mod in a development
+runtime. On 1.20.1 its mixins were SRG-named with no refmap and only resolved in a production
+instance. The in-world acceptance checklist is in [CHANGELOG.md](CHANGELOG.md).
+
+### What is verified
+
+Every push runs the unit/lint suite and the real-jar MCA binding probes (`.github/workflows/build.yml`,
+`test` job, both Ubuntu and Windows) plus `verifyGeneratedConversationContent` and
+`verifyVoiceOverlays`, so an authoring source that was edited without regenerating its committed
+output fails CI. A separate `dedicated-server-smoke` job boots a real dedicated server against the
+resolved MCA jar, asserts a clean start, runs `/reload` and checks that the chat-intent, conversation-catalog
+and interiority-profile loaders re-ran, that no client class reached the server, and that the mod
+logged no error. The job also asserts that each of the eight common mixins attached (the five client
+mixins are not asserted, since a dedicated server loads none), and that the workflow's list must be
+kept in sync with `mcaconversations.mixins.json` by hand. None of this is
+an in-game production check: those are still open and tracked per-finding in
+`docs/RELEASE-1.6.3-LEDGER.md`.
+
+## License
+
+GPL-3.0-only, matching MCA Reborn, whose internals this mod links against.
+
+
+See [the stabilization and narrative review](docs/STABILIZATION-2026-09.md) for the latest fixes, reproducible validation commands, optional API build paths, and remaining production checks.

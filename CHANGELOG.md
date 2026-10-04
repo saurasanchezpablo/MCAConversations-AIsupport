@@ -10,6 +10,46 @@ compile-only API jars of MCA: Quests 1.6.4 and MCA: Reputation 0.6.0, vendored i
 Entries up to and including 1.2.1 describe the Minecraft 1.20.1 / Forge line, which remains a
 separate download and is not superseded by this one.
 
+## [2.0.0-ai.1] - 2026-10-04
+
+First release of **MCA: Conversations AI**, by Pablo Saura. It is based on upstream MCA: Conversations
+1.8.0 by otectus. This edition replaces the original (same mod id), so install one or the other.
+
+### Added
+- **AI conversations** through MCA's chat-AI endpoint: free talk in your language, memory, and
+  consequences within guardrails (hearts, moods, dispositions, promises, wishes, grudges, gossip,
+  opinions of neighbours, directions, quests and discounts).
+- **Talk on click**: right-click a villager to talk. Sneak + right-click opens MCA's menu.
+- **An AI-only mode** and villagers who start conversations with you.
+- **Spoken requests.**
+  - Work: chop, mine, fish, hunt and harvest, with amounts and a progress bar. Villagers bring back
+    what they gather.
+  - Errands: guide, wait, pick up, store, fetch, breed, and cook or smelt at a furnace.
+  - Building together from templates, with helpers.
+  - Gifts chosen from your inventory, and tools lent when a villager needs one.
+- **Words and deeds agree.**
+  - Commitments run and refusals do not.
+  - Impossible promises are rewritten before they are heard.
+  - Interrupted tasks are announced.
+  - Claims of having received something are checked.
+  - Requests are read from your own words as a safety net.
+- **A living village.**
+  - Village events: festivals, markets, harvest feasts, funerals, weddings, births, welcomes,
+    meetings after attacks, and elections.
+  - Social life: villagers chat among themselves, quarrel, and accept mediation.
+  - Personal life: dates, childhood memories, secrets and betrayal.
+  - Practical life: real needs, threats and defence, skills and teaching.
+- **The villager's bag.** Villagers react to what you take from or put into their inventory,
+  depending on your relationship.
+- **Presentation.** Bubbles over villagers' heads, an indicator of who you are talking to, and a
+  `/diary` (`/diario`) in chat or as a written book.
+- **Voiced lines** with acting direction (emotion, intent, delivery) in Spanish or English, through
+  OpenAI or Gemini TTS. Set up with `/mcavoice`.
+- **In-game GameTests** against a real MCA villager (`./gradlew runGameTestServer`).
+
+### Changed
+- Name, authorship, credits, version line (2.0.0-ai) and documentation for the AI edition.
+
 ## [1.8.0] - unreleased
 
 Social behaviour, and Townstead. A villager meeting you for the first time now sounds like somebody
