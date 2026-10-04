@@ -34,7 +34,9 @@ public enum AiActionKind {
     /** Fetch an item from the nearest chest that has it and bring it to the player. */
     FETCH,
     /** Feed nearby animals with food the villager carries so they breed. */
-    BREED;
+    BREED,
+    /** Cook or smelt what the player hands over at a nearby furnace, smoker or blast furnace, and bring it back. */
+    COOK;
 
     public String key() {
         return name().toLowerCase(Locale.ROOT);

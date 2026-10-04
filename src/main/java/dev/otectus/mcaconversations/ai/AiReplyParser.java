@@ -254,6 +254,12 @@ public final class AiReplyParser {
             case AiEffect.Grudge.TYPE -> {
                 return Optional.of(new AiEffect.Grudge());
             }
+            case AiEffect.Reconcile.TYPE -> {
+                String with = AiText.clean(string(json, "with").or(() -> string(json, "about")).orElse(""), MAX_TOKEN);
+                if (!with.isEmpty()) {
+                    return Optional.of(new AiEffect.Reconcile(with));
+                }
+            }
             case AiEffect.Action.TYPE -> {
                 Optional<AiActionKind> kind = string(json, "do").or(() -> string(json, "action")).flatMap(AiActionKind::byKey);
                 if (kind.isEmpty()) {

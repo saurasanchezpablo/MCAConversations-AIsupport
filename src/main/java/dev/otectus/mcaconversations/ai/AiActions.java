@@ -82,6 +82,12 @@ final class AiActions {
                 McaHandles.runInteraction(villager, player, "stopworking");
             }
             case GUIDE, WAIT_AT, PICK_UP, STORE, FETCH, BREED -> AiErrands.start(villager, player, action, turn, villagerName, now);
+            // The player puts what to cook (and any fuel) in the cooking window; the errand starts when it closes.
+            case COOK -> AiTasks.schedule(now + SCREEN_DELAY_TICKS, () -> {
+                if (villager.isAlive() && !player.hasDisconnected() && villager.distanceTo(player) <= 8) {
+                    AiCookMenu.open(player, villager);
+                }
+            });
             case GIVE -> give(villager, player, action.item(), Math.max(1, action.amount()));
         }
     }

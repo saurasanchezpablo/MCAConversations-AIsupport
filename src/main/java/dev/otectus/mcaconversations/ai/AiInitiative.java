@@ -8,6 +8,7 @@ import dev.otectus.mcaconversations.conversation.RelationshipBand;
 import dev.otectus.mcaconversations.conversation.Relationships;
 import dev.otectus.mcaconversations.gossip.GossipEvent;
 import dev.otectus.mcaconversations.gossip.GossipSavedData;
+import dev.otectus.mcaconversations.network.VillagerBubblesS2C;
 import dev.otectus.mcaconversations.progress.AffectionMath;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -39,14 +40,29 @@ final class AiInitiative {
     static final int CHECK_INTERVAL_TICKS = 200;
     static final long PAIR_COOLDOWN_TICKS = 12_000;
 
-    /** Why a villager would come over, and how much it matters (1 small talk .. 5 pressing). */
-    record Reason(int weight, String text) {
+    /**
+     * Why a villager would come over, and how much it matters (1 small talk .. 5 pressing), and the
+     * bubble it puts over their head ({@link #NO_BUBBLE} for small talk and simply being in love).
+     */
+    record Reason(int weight, String text, byte bubble) {
+        Reason(int weight, String text) {
+            this(weight, text, weight >= 4 ? VillagerBubblesS2C.URGENT : VillagerBubblesS2C.NEWS);
+        }
     }
+
+    static final byte NO_BUBBLE = -1;
 
     /** What the villager knows about this player that could be worth walking over for. Pure input. */
     record Facts(String playerName, RelationshipBand band, boolean romantic, int turns, long daysSinceTalk,
                  Optional<String> promiseDue, Optional<String> promiseKept, Optional<String> loss,
-                 Optional<String> heardAbout, Optional<String> wish) {
+                 Optional<String> heardAbout, Optional<String> wish, Optional<String> event) {
+
+        Facts(String playerName, RelationshipBand band, boolean romantic, int turns, long daysSinceTalk,
+              Optional<String> promiseDue, Optional<String> promiseKept, Optional<String> loss,
+              Optional<String> heardAbout, Optional<String> wish) {
+            this(playerName, band, romantic, turns, daysSinceTalk, promiseDue, promiseKept, loss, heardAbout, wish,
+                    Optional.empty());
+        }
     }
 
     private static final Map<UUID, Long> LAST_BY_PLAYER = new HashMap<>();
@@ -65,9 +81,10 @@ final class AiInitiative {
         if (f.band().isAtLeast(RelationshipBand.ACQUAINTANCE)) {
             f.loss().ifPresent(s -> reasons.add(new Reason(4, "you are grieving " + s + " and want someone to talk to")));
         }
+        f.event().ifPresent(s -> reasons.add(new Reason(4, s, VillagerBubblesS2C.EVENT)));
         f.heardAbout().ifPresent(s -> reasons.add(new Reason(3, "you heard that " + s)));
         if (f.romantic()) {
-            reasons.add(new Reason(3, "you are happy to see the one you love"));
+            reasons.add(new Reason(3, "you are happy to see the one you love", NO_BUBBLE));
         }
         if (f.band().isAtLeast(RelationshipBand.FRIEND) && f.daysSinceTalk() >= 3) {
             reasons.add(new Reason(3, "you have not seen " + p + " for " + f.daysSinceTalk() + " days"));
@@ -77,9 +94,9 @@ final class AiInitiative {
         }
         f.wish().ifPresent(s -> reasons.add(new Reason(2, "you are still hoping someone brings you " + s)));
         if (f.turns() == 0 && f.band() == RelationshipBand.STRANGER) {
-            reasons.add(new Reason(1, p + " is a stranger you have never spoken to and you are curious about them"));
+            reasons.add(new Reason(1, p + " is a stranger you have never spoken to and you are curious about them", NO_BUBBLE));
         } else {
-            reasons.add(new Reason(1, "you feel like chatting about your day"));
+            reasons.add(new Reason(1, "you feel like chatting about your day", NO_BUBBLE));
         }
         return reasons.stream().max(Comparator.comparingInt(Reason::weight));
     }
@@ -108,7 +125,7 @@ final class AiInitiative {
                 if (!available(villager, player, now)) {
                     continue;
                 }
-                Optional<Reason> reason = reason(facts(server, villager, player, now));
+                Optional<Reason> reason = reason(facts(server, villager, player, now, false));
                 if (reason.isPresent() && (best == null || reason.get().weight() > best.weight())) {
                     best = reason.get();
                     chosen = Optional.of(villager);
@@ -118,6 +135,10 @@ final class AiInitiative {
                 continue;
             }
             Entity villager = chosen.get();
+            if (best.bubble() == VillagerBubblesS2C.EVENT) {
+                AiVillageEvents.invitation(server, villager, player.getName().getString(), player.getUUID(), false)
+                        .ifPresent(invite -> AiVillageEvents.markInvited(server, invite.eventId(), player.getUUID()));
+            }
             LAST_BY_PLAYER.put(player.getUUID(), now);
             LAST_BY_PAIR.put(pairKey(villager.getUUID(), player.getUUID()), now);
             AiConversations.open(player, villager, best.text());
@@ -156,7 +177,8 @@ final class AiInitiative {
                 .map(pair -> !pair.grudge(now)).orElse(true);
     }
 
-    private static Facts facts(MinecraftServer server, Entity villager, ServerPlayer player, long now) {
+    /** @param organiserOnly only an organiser speaks of an event (for bubbles: one per event, not a crowd) */
+    static Facts facts(MinecraftServer server, Entity villager, ServerPlayer player, long now, boolean organiserOnly) {
         long day = AffectionMath.dayOf(now);
         AiMemorySavedData data = AiMemorySavedData.get(server);
         AiPairMemory pair = data.peek(villager.getUUID(), player.getUUID()).orElse(new AiPairMemory());
@@ -175,8 +197,11 @@ final class AiInitiative {
         Optional<String> loss = data.bereavements(villager.getUUID(), day).stream().findFirst()
                 .map(b -> "your " + b.relation() + " " + b.name());
         long daysSince = pair.lastTalkDay() < 0 ? 0 : day - pair.lastTalkDay();
+        Optional<String> event = AiVillageEvents.invitation(server, villager, player.getName().getString(), player.getUUID(),
+                organiserOnly).map(AiVillageEvents.Invite::text);
         return new Facts(player.getName().getString(), band, romantic, pair.turns(), daysSince, due, kept, loss,
-                heardAbout(server, villager, player, now), pair.wish(day).map(w -> AiContextFormat.words(w.item().replace("#", ""))));
+                heardAbout(server, villager, player, now), pair.wish(day).map(w -> AiContextFormat.words(w.item().replace("#", ""))),
+                event);
     }
 
     private static Optional<String> heardAbout(MinecraftServer server, Entity villager, ServerPlayer player, long now) {

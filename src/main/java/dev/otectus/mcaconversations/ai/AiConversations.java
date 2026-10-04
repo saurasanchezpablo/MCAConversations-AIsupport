@@ -226,6 +226,14 @@ public final class AiConversations {
                     turn, now, day);
             // What the player asked the villager to do, by word: a window, an order, a task.
             AiActions.apply(villager, player, villagerName, plan.actions(), turn, now);
+            // The player talked them into making peace with a neighbour.
+            plan.reconcile().ifPresent(with -> {
+                try {
+                    AiMediation.reconcile(server, villager, player, villagerName, with, turn, now, day);
+                } catch (Throwable t) {
+                    McaConversations.LOGGER.debug("AI mediation failed; skipped", t);
+                }
+            });
             // How the line should sound, sent ahead of MCA delivering it.
             AiVoice.direct(player, villager, reply.dialogue(), reply.emotion(), reply.deliveryOrDefault(), turn.facts());
             if (opener) {
@@ -328,6 +336,12 @@ public final class AiConversations {
     }
 
     /** The villager this player is in an AI conversation with, if it is still live. */
+    /** Whether some player is in a live AI conversation with this villager. */
+    static boolean inConversation(UUID villager, long now) {
+        long idle = McaConversationsConfig.aiConversationIdleTicks();
+        return PARTNERS.values().stream().anyMatch(p -> p.villager.equals(villager) && now - p.lastTick <= idle);
+    }
+
     static Optional<UUID> partner(UUID player, long now) {
         Partner partner = PARTNERS.get(player);
         if (partner == null || now - partner.lastTick > McaConversationsConfig.aiConversationIdleTicks()) {
@@ -338,6 +352,7 @@ public final class AiConversations {
 
     static void setPartner(UUID player, UUID villager, long now) {
         PARTNERS.put(player, new Partner(villager, now));
+        AiBubbles.talked(villager, player, now);
         notifyPartner(player, villager);
     }
 
@@ -511,6 +526,11 @@ public final class AiConversations {
         } catch (Throwable t) {
             McaConversations.LOGGER.debug("AI bereavement record failed", t);
         }
+        try {
+            AiVillageEvents.onDeath(server, deceased);
+        } catch (Throwable t) {
+            McaConversations.LOGGER.debug("AI funeral planning failed", t);
+        }
         onVillagerDeath(server, deceased.getUUID());
     }
 
@@ -560,9 +580,20 @@ public final class AiConversations {
         }
         AiWork.tick(server);
         AiErrands.tick(server);
+        if (enabled()) {
+            AiVillageEvents.tick(server);
+            AiBubbles.tick(server);
+        }
         if (autoConversations()) {
             AiInitiative.tick(server);
         }
+    }
+
+    /** A player is leaving: what errands held for them is handed back first. */
+    public static void onPlayerLogout(ServerPlayer player) {
+        AiErrands.forgetPlayer(player);
+        AiBubbles.forgetPlayer(player.getUUID());
+        onPlayerLogout(player.getUUID());
     }
 
     public static void onPlayerLogout(UUID player) {
@@ -587,5 +618,7 @@ public final class AiConversations {
         AiInitiative.reset();
         AiWork.reset();
         AiErrands.reset();
+        AiVillageEvents.reset();
+        AiBubbles.reset();
     }
 }

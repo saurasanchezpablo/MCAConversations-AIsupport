@@ -42,6 +42,23 @@ public final class ConversationsNetwork {
     private static volatile java.util.function.Consumer<ConversationPartnerS2C> partnerSink = p -> {
     };
 
+    private static volatile java.util.function.Consumer<VillagerBubblesS2C> bubbleSink = p -> {
+    };
+
+    public static void installBubbleSink(java.util.function.Consumer<VillagerBubblesS2C> incoming) {
+        bubbleSink = incoming == null ? p -> {
+        } : incoming;
+    }
+
+    /** Tells the player which villagers around them have something to say; never throws. */
+    public static void sendBubbles(net.minecraft.server.level.ServerPlayer player, VillagerBubblesS2C payload) {
+        try {
+            net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player, payload);
+        } catch (Throwable t) {
+            McaConversations.LOGGER.debug("bubble send failed; ignoring", t);
+        }
+    }
+
     public static void installPartnerSink(java.util.function.Consumer<ConversationPartnerS2C> incoming) {
         partnerSink = incoming == null ? p -> {
         } : incoming;
@@ -131,6 +148,8 @@ public final class ConversationsNetwork {
                 (payload, context) -> context.enqueueWork(() -> voiceSink.accept(payload.direction())));
         registrar.playToClient(ConversationPartnerS2C.TYPE, ConversationPartnerS2C.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> partnerSink.accept(payload)));
+        registrar.playToClient(VillagerBubblesS2C.TYPE, VillagerBubblesS2C.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> bubbleSink.accept(payload)));
         registrar.playToClient(OpenChatS2C.TYPE, OpenChatS2C.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> openChatSink.run()));
     }

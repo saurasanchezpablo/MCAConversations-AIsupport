@@ -274,6 +274,108 @@ Each helper says it is joining (or, for work, that it lacks the tool), then ever
   back, hands the goods over, says so, and moves freely again.
 - MCA drops a chore when the tool runs out or the player leaves; the bar goes with it.
 
+## Bubbles, cooking, mediation and village life
+
+### Bubbles over villagers
+A villager with something to tell a player shows a small bubble above its head, for that player only.
+- A gold `!` means something important: a promise falling due or just kept, or a loss.
+- A white `…` means news: a rumour about the player, missing them after days apart, or a wish.
+- A blue `♪` means an invitation to a village event. Only the organiser shows it.
+
+The reasons are the ones that make a villager come over on their own (`AiInitiative`). Small talk and
+simply being in love never show a bubble. After the player talks with a villager, that villager's
+bubble stays down for 5 minutes. The server sends the set (`VillagerBubblesS2C`, protocol 5) only when
+it changes.
+- Server switch: `ai.bubbles`.
+- Client switch: `display.showVillagerBubbles`.
+
+### Cooking and smelting (`cook` action)
+Example requests: "¿me asas esta carne?", "smelt this iron".
+1. The villager agrees, and a one-row window opens.
+2. The player puts in what to cook and, if they like, the fuel.
+3. The villager takes it all to the nearby station that can cook the most of it: a smoker for food,
+   a blast furnace for ores, a furnace for both.
+4. It stands there with smoke and flame while a red bar fills.
+5. It brings everything back: the results, plus anything that could not be cooked or was not burnt.
+   The player also gets the recipe's experience.
+
+Rules:
+- Recipes and cooking times are the game's own.
+- Each item burns 200 fuel units, as in a furnace: coal cooks 8, a lava bucket 100. The player's fuel
+  is used first, then the villager's own coal or wood. A fuel's container (the lava bucket's bucket)
+  comes back.
+- Without fuel, the villager says so and returns everything.
+- Nothing is ever lost. If the errand ends early, everything still held goes back to the player, or
+  is dropped where the villager stands if the player has logged out.
+
+### Mediation (`reconcile` effect)
+A villager whose opinion of a neighbour is more bad than good has a feud. The prompt names those
+neighbours and offers `{"type": "reconcile", "with": name}`. The planner allows it only when:
+- the neighbour is one the villager was shown as a feud;
+- the player was not unkind about it;
+- the villager holds no grudge against the player.
+
+When it is allowed:
+- **The other side still holds a grudge:** this villager softens and sends word through the player. The
+  other villager's next conversation includes "Through Steve, Ana has said they want to make peace with
+  you". The offer lasts 3 days.
+- **The other side is ready too, or never minded:** both grievances are dropped and some warmth returns.
+  Both villagers remember who brought them together (high importance) and each gives +2 hearts, once
+  per pair and day. Both feel grateful. If the two are within 24 blocks, they walk over and make up out
+  loud.
+
+### Village events (`AiVillageEvents`)
+Events follow the day clock: hours are given from 6 am, and gatherings end before villagers go to bed.
+
+| Event | When | Where (first match the village has) | Who it honours |
+|---|---|---|---|
+| Festival | dusk, planned some mornings | inn, music store, tavern, town centre | everyone |
+| Harvest feast | late afternoon, planned | town centre, inn, farm | everyone |
+| Market day | morning, planned | town centre, market, inn, storage | traders (better prices) |
+| Funeral | the morning after a death | graveyard, cemetery, chapel, town centre | the bereaved family |
+| Wedding | after MCA marries two villagers (or a villager and a player) | chapel, church, town centre, inn | the couple |
+| Birth | after a child joins the village | town centre, inn, infirmary | the parents |
+| Welcome | after a newcomer moves in | town centre, inn | the newcomer |
+| Quarrel | planned some mornings | where the two are | (no gathering) |
+
+When none of those buildings exists, the gathering is held at the middle of the village.
+
+How an event is triggered:
+- **Planned events:** each morning, a village with a player in it rolls `ai.villageEventChance` (0.35)
+  to plan something of its own. The weights are festival 30, market 30, harvest feast 15, quarrel 25.
+- **Weddings, births and welcomes:** a census of each village notices new residents and new couples.
+  The first census only records.
+- **Funerals:** triggered by a villager's death.
+
+What villagers know about it:
+- Every AI turn in the village gets a "Village life" section: what is coming, what is happening, and
+  what happened. It includes the villager's own part (organising it, their wedding, their mourning)
+  and whether the player came.
+- A villager may come over on their own to invite the player, which uses the AI.
+- The organiser shows the `♪` bubble until the player has been told.
+
+During the event:
+1. Free residents within 96 blocks walk over through their own brain (`WALK_TARGET`) and stand in a
+   circle facing the middle.
+2. They make music notes and dance at a festival or feast, hearts at a wedding, and quiet souls at a
+   funeral. Some of them chat out loud.
+3. Players within 64 blocks see a bar.
+
+Who is free to go:
+- Babies, sleepers, panicking villagers, and anyone on an errand, a task or in a conversation stay away.
+- Villagers who are working go only to a funeral, a wedding, or their own event.
+
+Attending:
+- A player who stays within 14 blocks for 20 seconds has come. They get:
+  - hearts with those it honours (+2) and up to 6 nearby guests (+1, ReplayPolicy.ONCE);
+  - a memory of it;
+  - grateful or elated states;
+  - better prices with traders on market day.
+- A quarrel instead leaves both neighbours thinking worse of each other, which feeds mediation.
+
+Server switches: `ai.villageEvents`, `ai.villageEventChance`. Everything is saved in
+`data/mcaconversations_village_life.dat`.
+
 ## Voice (acting TTS)
 
 Villagers speak their lines aloud with acting: the emotion, what the line is for, their mood, grief,

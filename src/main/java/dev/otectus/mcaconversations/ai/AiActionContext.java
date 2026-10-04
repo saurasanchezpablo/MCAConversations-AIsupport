@@ -134,6 +134,7 @@ final class AiActionContext {
                 AiErrands.SEARCH_RADIUS);
         int loose = AiErrands.looseItems(level, villager.blockPosition()).size();
         boolean animals = !AiErrands.feedable(level, villager).isEmpty();
+        List<AiCooking.Found> stations = AiCooking.stations(level, villager.blockPosition(), AiErrands.SEARCH_RADIUS);
         if (adultish && band.isAtLeast(RelationshipBand.ACQUAINTANCE) && !villagePlaces.isEmpty()) {
             actions.add(AiActionKind.GUIDE);
             actions.add(AiActionKind.WAIT_AT);
@@ -150,6 +151,9 @@ final class AiActionContext {
             }
             if (animals) {
                 actions.add(AiActionKind.BREED);
+            }
+            if (!stations.isEmpty()) {
+                actions.add(AiActionKind.COOK);
             }
         }
         Set<String> chores = actions.contains(AiActionKind.WORK)
@@ -175,6 +179,10 @@ final class AiActionContext {
                 .ifPresent(c -> lines.add("A chest nearby holds: " + summarize(c)));
         if (animals) {
             lines.add("There are animals nearby you have food to breed");
+        }
+        if (!stations.isEmpty()) {
+            lines.add("Nearby you can cook at: " + stations.stream().map(f -> f.station().words).distinct()
+                    .collect(Collectors.joining(", ")) + " (a smoker cooks food, a blast furnace smelts ores, a furnace does both)");
         }
         AiWork.progressText(villager).ifPresentOrElse(p -> lines.add("Your current task: " + p),
                 () -> {
@@ -208,7 +216,9 @@ final class AiActionContext {
                     + "give you something (a gift window opens where they choose it); inventory = open your inventory so "
                     + playerName + " can hand you things (a tool, say) or take them; follow / stay / move (move freely) / "
                     + "go_home / armor (put armour on or off); stop_work; pick_up = gather what lies on the ground and bring "
-                    + "it; store = put what you carry into the nearby chest; breed = feed the animals nearby so they breed. "
+                    + "it; store = put what you carry into the nearby chest; breed = feed the animals nearby so they breed; "
+                    + "cook = cook or smelt something for " + playerName + " (roast meat, smelt iron...): a window opens where "
+                    + "they put it and any fuel, then you take it to the furnace and bring it back. "
                     + "Do not use one the player did not ask for.");
             if (actions.contains(AiActionKind.GUIDE)) {
                 offers.add("{\"type\": \"action\", \"do\": \"guide|wait_at\", \"place\": one of "

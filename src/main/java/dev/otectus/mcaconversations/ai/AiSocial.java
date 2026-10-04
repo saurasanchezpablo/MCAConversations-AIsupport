@@ -155,7 +155,16 @@ final class AiSocial {
         if (!neighbourIds.isEmpty()) {
             views.add("Neighbours you know: " + String.join(", ", neighbourIds.keySet()));
         }
+        List<String> feuds = AiMediation.feuds(data, villagerId, neighbourIds);
+        if (!feuds.isEmpty()) {
+            views.add("You have fallen out with: " + String.join(", ", feuds) + ". If " + playerName + " tries to make "
+                    + "peace between you, take it seriously: you might be persuaded, or you might not be ready yet.");
+        }
+        views.addAll(AiMediation.promptLines(server, villagerId, day));
         sections.add(new AiContextSection("Your views of neighbours", views));
+
+        // --- village life: festivals, markets, funerals, weddings, quarrels -----------------------------------
+        sections.add(new AiContextSection("Village life", AiVillageEvents.promptLines(server, villager, player)));
 
         // --- what the village says about the player ---------------------------------------------------------
         sections.add(new AiContextSection("What the village says about " + playerName,
@@ -198,7 +207,7 @@ final class AiSocial {
 
         AiTurnFacts facts = new AiTurnFacts(band, hearts, romanceAllowed, !losses.isEmpty(), grudge, quests, topics,
                 places.keySet(), neighbourIds.keySet(), bystanderIds.keySet(), (int) pair.openPromises(),
-                wish.isPresent(), actions.actions(), actions.chores(), actions.helpers().keySet());
+                wish.isPresent(), actions.actions(), actions.chores(), actions.helpers().keySet(), Set.copyOf(feuds));
         return new Turn(facts, sections, neighbourIds, bystanderIds, places, actions.offers(), actions.helpers());
     }
 
@@ -217,6 +226,11 @@ final class AiSocial {
                     .map(p -> "\"" + p.token() + "\" (" + p.label() + ")").toList();
             out.add("{\"type\": \"directions\", \"place\": one of " + String.join(", ", labels)
                     + "} when asked the way; the game adds the exact directions after your line");
+        }
+        if (!turn.facts().feuds().isEmpty()) {
+            out.add("{\"type\": \"reconcile\", \"with\": one of " + quoted(turn.neighbourIds().keySet().stream()
+                    .filter(n -> AiTurnFacts.contains(turn.facts().feuds(), n)).toList()) + "} when " 
+                    + "the player sincerely talks you into making peace with that neighbour and you agree to let it go");
         }
         if (!turn.neighbourIds().isEmpty()) {
             out.add("{\"type\": \"opinion\", \"about\": a neighbour's exact name, \"axis\": \"warmth|trust|respect\", "

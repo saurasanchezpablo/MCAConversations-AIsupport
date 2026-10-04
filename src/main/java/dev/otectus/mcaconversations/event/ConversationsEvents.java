@@ -76,7 +76,7 @@ public final class ConversationsEvents {
             ChatModeSession.clear(player.getUUID(), CloseReason.DISCONNECTED);
             GreetOnApproach.clear(player.getUUID());
             dev.otectus.mcaconversations.hub.DynamicHub.clear(player.getUUID());
-            dev.otectus.mcaconversations.ai.AiConversations.onPlayerLogout(player.getUUID());
+            dev.otectus.mcaconversations.ai.AiConversations.onPlayerLogout(player);
         }
     }
 

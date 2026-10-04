@@ -37,7 +37,7 @@ import java.util.UUID;
 /**
  * Errands a player sends a villager on by word, driven by this mod: guiding the player somewhere,
  * going to a place to wait, picking up what lies around, storing or fetching things from a chest,
- * and feeding animals so they breed.
+ * feeding animals so they breed, and cooking or smelting at a furnace, smoker or blast furnace.
  *
  * <p>While on an errand the villager is put on MCA's "prospecting" chore, which has no task in MCA,
  * so MCA's brain stands aside while this class walks the villager about. Errands that collect
@@ -53,7 +53,7 @@ final class AiErrands {
     static final long TIMEOUT_TICKS = 3600;
     static final long RETURN_TIMEOUT_TICKS = 1200;
 
-    enum Stage { GO, DELIVER }
+    enum Stage { GO, COOK, DELIVER }
 
     static final class Errand {
         final UUID villager;
@@ -65,6 +65,12 @@ final class AiErrands {
         final int amount;
         final ServerBossEvent bar;
         final List<ItemStack> carried = new ArrayList<>();
+        /** For COOK: what the player handed over, until it goes into the station. */
+        final List<ItemStack> inputs = new ArrayList<>();
+        AiCooking.Station station;
+        long cookUntil;
+        int cookTicks;
+        float experience;
         final long started;
         Stage stage = Stage.GO;
         long stageSince;
@@ -167,10 +173,66 @@ final class AiErrands {
         return true;
     }
 
+    /**
+     * Sends a villager to cook or smelt what the player handed over, at the nearby station that can
+     * cook the most of it. False when there is none (the caller gives the items back).
+     */
+    static boolean startCook(Entity villager, ServerPlayer player, List<ItemStack> inputs, String villagerName, long now) {
+        ServerLevel level = player.serverLevel();
+        Optional<AiCooking.Found> found = AiCooking.best(level, villager.blockPosition(), SEARCH_RADIUS, inputs);
+        if (found.isEmpty()) {
+            say(villager, player, "cook_nothing", villagerName, "");
+            return false;
+        }
+        stop(villager.getUUID());
+        AiWork.stop(villager.getUUID(), true);
+        VillagerAttention.release(villager);
+        McaHandles.runInteraction(villager, player, AiChore.MINE.mcaCommand()); // MCA's brain stands aside
+        String label = found.get().station().words;
+        ServerBossEvent bar = new ServerBossEvent(title(villagerName, AiActionKind.COOK, label, 0, 0),
+                BossEvent.BossBarColor.YELLOW, BossEvent.BossBarOverlay.PROGRESS);
+        bar.addPlayer(player);
+        Errand errand = new Errand(villager.getUUID(), player.getUUID(), AiActionKind.COOK, label, found.get().pos(), "", 0,
+                bar, now);
+        errand.station = found.get().station();
+        errand.targetBlock = found.get().pos();
+        errand.inputs.addAll(inputs);
+        ERRANDS.put(villager.getUUID(), errand);
+        return true;
+    }
+
+    static boolean busy(UUID villager) {
+        return ERRANDS.containsKey(villager);
+    }
+
     static void stop(UUID villager) {
         Errand errand = ERRANDS.remove(villager);
         if (errand != null) {
             errand.bar.removeAllPlayers();
+            refund(errand, null, null);
+        }
+    }
+
+    /**
+     * Whatever an errand still holds for the player (things to cook, things gathered) is never lost
+     * when it ends early: handed to the player if they are online, else left where the villager stands.
+     */
+    private static void refund(Errand errand, ServerPlayer player, Entity villager) {
+        List<ItemStack> goods = new ArrayList<>(errand.inputs);
+        goods.addAll(errand.carried);
+        errand.inputs.clear();
+        errand.carried.clear();
+        for (ItemStack stack : goods) {
+            if (stack.isEmpty()) {
+                continue;
+            }
+            if (player != null && !player.hasDisconnected()) {
+                if (!player.getInventory().add(stack) && !stack.isEmpty()) {
+                    player.drop(stack, false);
+                }
+            } else if (villager != null && villager.isAlive()) {
+                villager.spawnAtLocation(stack);
+            }
         }
     }
 
@@ -199,9 +261,13 @@ final class AiErrands {
                 ServerPlayer player = server.getPlayerList().getPlayer(errand.player);
                 Entity entity = player == null ? null : player.serverLevel().getEntity(errand.villager);
                 keep = player != null && entity instanceof Mob villager && villager.isAlive()
-                        && now - errand.started < TIMEOUT_TICKS && step(player.serverLevel(), villager, player, errand, now);
+                        && now - errand.started < TIMEOUT_TICKS + errand.cookTicks
+                        && step(player.serverLevel(), villager, player, errand, now);
                 if (!keep && player != null && entity != null && entity.isAlive()) {
                     McaHandles.runInteraction(entity, player, "stopworking");
+                }
+                if (!keep) {
+                    refund(errand, player, entity);
                 }
             } catch (Throwable t) {
                 McaConversations.LOGGER.debug("AI errand failed; dropping it", t);
@@ -226,6 +292,9 @@ final class AiErrands {
         if (e.stage == Stage.DELIVER) {
             return deliver(villager, player, e, name, now);
         }
+        if (e.stage == Stage.COOK) {
+            return cooking(level, villager, player, e, now);
+        }
         return switch (e.kind) {
             case GUIDE -> guide(villager, player, e, name, now);
             case WAIT_AT -> waitAt(villager, player, e, name, now);
@@ -233,6 +302,7 @@ final class AiErrands {
             case STORE -> store(level, villager, player, e, name, now);
             case FETCH -> fetch(level, villager, player, e, name, now);
             case BREED -> breed(level, villager, player, e, name, now);
+            case COOK -> goCook(level, villager, player, e, name, now);
             default -> false;
         };
     }
@@ -377,6 +447,61 @@ final class AiErrands {
         return true;
     }
 
+    private static boolean goCook(ServerLevel level, Mob villager, ServerPlayer player, Errand e, String name, long now) {
+        BlockPos pos = e.targetBlock;
+        if (!walk(villager, pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, 0.6, now)) {
+            return true;
+        }
+        if (AiCooking.Station.of(level.getBlockEntity(pos)).filter(s -> s == e.station).isEmpty()) {
+            say(villager, player, "cook_nothing", name, "");
+            e.carried.addAll(e.inputs);
+            e.inputs.clear();
+            return toDeliver(villager, player, e, now);
+        }
+        AiCooking.Plan plan = AiCooking.plan(level, e.station, e.inputs, McaHandles.inventory(villager));
+        e.inputs.clear();
+        e.carried.addAll(plan.results());
+        e.carried.addAll(plan.leftovers());
+        if (plan.cooked() == 0) {
+            say(villager, player, "cook_no_fuel", name, "");
+            return toDeliver(villager, player, e, now);
+        }
+        e.cookTicks = plan.ticks();
+        e.cookUntil = now + plan.ticks();
+        e.experience = plan.experience();
+        e.stage = Stage.COOK;
+        e.stageSince = now;
+        e.bar.setColor(BossEvent.BossBarColor.RED);
+        return true;
+    }
+
+    /** Standing at the station while the batch cooks: smoke and flame, the bar filling. */
+    private static boolean cooking(ServerLevel level, Mob villager, ServerPlayer player, Errand e, long now) {
+        BlockPos pos = e.targetBlock;
+        int cooked = e.carried.stream().mapToInt(ItemStack::getCount).sum();
+        float progress = e.cookTicks <= 0 ? 1f : Math.min(1f, (now - e.stageSince) / (float) e.cookTicks);
+        e.done = Math.round(progress * cooked);
+        e.bar.setProgress(progress);
+        if (villager.distanceToSqr(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5) > 9) {
+            walk(villager, pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, 0.6, now);
+        }
+        villager.getLookControl().setLookAt(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+        if (now % 10 == 0) {
+            level.sendParticles(net.minecraft.core.particles.ParticleTypes.SMOKE, pos.getX() + 0.5, pos.getY() + 1.1,
+                    pos.getZ() + 0.5, 2, 0.15, 0.05, 0.15, 0.01);
+            level.sendParticles(net.minecraft.core.particles.ParticleTypes.FLAME, pos.getX() + 0.5, pos.getY() + 0.4,
+                    pos.getZ() + 0.5, 1, 0.25, 0.1, 0.25, 0.0);
+        }
+        if (now % 60 == 0) {
+            villager.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+        }
+        if (now < e.cookUntil) {
+            return true;
+        }
+        e.done = cooked;
+        return toDeliver(villager, player, e, now);
+    }
+
     /** Collected something: stop the errand chore and come back to hand it over. */
     private static boolean toDeliver(Mob villager, ServerPlayer player, Errand e, long now) {
         if (e.carried.isEmpty()) {
@@ -397,8 +522,18 @@ final class AiErrands {
                     player.drop(stack, false);
                 }
             }
+            e.carried.clear();
+            if (e.experience > 0) {
+                int xp = (int) Math.floor(e.experience);
+                if (Math.random() < e.experience - xp) {
+                    xp++;
+                }
+                if (xp > 0) {
+                    net.minecraft.world.entity.ExperienceOrb.award(player.serverLevel(), player.position(), xp);
+                }
+            }
             McaHandles.runInteraction(villager, player, "MOVE");
-            say(villager, player, "brought", name, e.done);
+            say(villager, player, e.kind == AiActionKind.COOK ? "cooked" : "brought", name, e.done);
             return false;
         }
         if (now - e.stageSince > RETURN_TIMEOUT_TICKS) {
@@ -406,6 +541,7 @@ final class AiErrands {
             for (ItemStack stack : e.carried) {
                 villager.spawnAtLocation(stack);
             }
+            e.carried.clear();
             McaHandles.runInteraction(villager, player, "MOVE");
             return false;
         }
@@ -451,14 +587,27 @@ final class AiErrands {
         return stack;
     }
 
-    private static void say(Mob villager, ServerPlayer player, String key, String name, Object arg) {
+    private static void say(Entity villager, ServerPlayer player, String key, String name, Object arg) {
         AiLines.say(villager, player, AiLines.variant(key, arg), name, AiEmotion.HAPPY, VoiceIntent.STATEMENT);
     }
 
     static void forgetPlayer(UUID player) {
+        // The player is leaving: an errand ends, and its goods are left where the villager stands.
         ERRANDS.values().removeIf(e -> {
             if (e.player.equals(player)) {
                 e.bar.removeAllPlayers();
+                return true;
+            }
+            return false;
+        });
+    }
+
+    /** As {@link #forgetPlayer}, giving back what an errand held for them while they are still here. */
+    static void forgetPlayer(ServerPlayer player) {
+        ERRANDS.values().removeIf(e -> {
+            if (e.player.equals(player.getUUID())) {
+                e.bar.removeAllPlayers();
+                refund(e, player, null);
                 return true;
             }
             return false;

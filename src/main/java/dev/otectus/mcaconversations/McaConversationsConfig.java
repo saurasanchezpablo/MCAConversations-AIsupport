@@ -316,6 +316,27 @@ public final class McaConversationsConfig {
         return serverInt(SERVER.aiAutoConversationRadius, 10);
     }
 
+    public static boolean aiBubbles() {
+        return serverBool(SERVER.aiBubbles, true);
+    }
+
+    public static boolean aiVillageEvents() {
+        return serverBool(SERVER.aiVillageEvents, true);
+    }
+
+    public static double aiVillageEventChance() {
+        return serverDouble(SERVER.aiVillageEventChance, 0.35);
+    }
+
+    /** Client only: draw the bubbles over villagers who have something to say. */
+    public static boolean showVillagerBubbles() {
+        try {
+            return CLIENT.showVillagerBubbles.get();
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
     public static boolean aiRelationshipEffects() {
         return serverBool(SERVER.aiRelationshipEffects, true);
     }
@@ -1145,6 +1166,9 @@ public final class McaConversationsConfig {
         public final ModConfigSpec.IntValue aiAutoConversationCooldownTicks;
         public final ModConfigSpec.DoubleValue aiAutoConversationChance;
         public final ModConfigSpec.IntValue aiAutoConversationRadius;
+        public final ModConfigSpec.BooleanValue aiBubbles;
+        public final ModConfigSpec.BooleanValue aiVillageEvents;
+        public final ModConfigSpec.DoubleValue aiVillageEventChance;
 
         Server(ModConfigSpec.Builder b) {
             b.comment("Values the server decides for everyone connected to it. Stored per world under",
@@ -1417,6 +1441,19 @@ public final class McaConversationsConfig {
                     .defineInRange("autoConversationChance", 0.1, 0.0, 1.0);
             aiAutoConversationRadius = b.comment("How close a villager must be, in blocks, to come over and talk.")
                     .defineInRange("autoConversationRadius", 10, 4, 24);
+            aiBubbles = b.comment(
+                    "Show a small bubble over villagers who have something to tell a player: \"!\" for something that",
+                    "matters (a promise due or kept, a loss), \"...\" for news or missing them, a note for an invitation.")
+                    .define("bubbles", true);
+            aiVillageEvents = b.comment(
+                    "Village life: festivals, market days, funerals, weddings, births, welcomes for newcomers and the",
+                    "odd quarrel between neighbours. Villagers gather at the plaza, the inn or the graveyard, invite",
+                    "players by word, and remember who came.")
+                    .define("villageEvents", true);
+            aiVillageEventChance = b.comment(
+                    "Chance each morning that a village with a player in it plans something of its own (a festival, a",
+                    "market day, a quarrel). Funerals, weddings, births and welcomes always happen when due.")
+                    .defineInRange("villageEventChance", 0.35, 0.0, 1.0);
             b.pop();
         }
     }
@@ -1431,6 +1468,7 @@ public final class McaConversationsConfig {
         public final ModConfigSpec.BooleanValue voiceScriptedLines;
         public final ModConfigSpec.IntValue voiceMaxCharacters;
         public final ModConfigSpec.BooleanValue voiceDebug;
+        public final ModConfigSpec.BooleanValue showVillagerBubbles;
         public final ModConfigSpec.BooleanValue numberedResponses;
         public final ModConfigSpec.EnumValue<DialogueMenuStyle> dialogueMenuStyle;
         public final ModConfigSpec.BooleanValue numericResponseShortcuts;
@@ -1499,6 +1537,9 @@ public final class McaConversationsConfig {
                     "actually received, is cleared on disconnect and world change, and is never written",
                     "to disk or exported. 0 disables the drawer entirely.")
                     .defineInRange("deliveredHistoryEntries", 64, 0, 256);
+            showVillagerBubbles = b.comment(
+                    "Draw the bubble over a villager who has something to tell you (AI conversations).")
+                    .define("showVillagerBubbles", true);
             b.pop();
 
             b.push("voice");

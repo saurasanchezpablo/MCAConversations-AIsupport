@@ -16,7 +16,7 @@ import java.util.Optional;
  */
 public sealed interface AiEffect permits AiEffect.DispositionNudge, AiEffect.Promise, AiEffect.Wish,
         AiEffect.OfferQuest, AiEffect.UnlockTopic, AiEffect.Opinion, AiEffect.Directions, AiEffect.Discount,
-        AiEffect.Forgive, AiEffect.Grudge, AiEffect.Action {
+        AiEffect.Forgive, AiEffect.Grudge, AiEffect.Action, AiEffect.Reconcile {
 
     /** The stable key the model uses for this effect type. */
     String type();
@@ -172,6 +172,19 @@ public sealed interface AiEffect permits AiEffect.DispositionNudge, AiEffect.Pro
         public boolean everyone() {
             return helpers.contains(ALL);
         }
+
+        @Override
+        public String type() {
+            return TYPE;
+        }
+    }
+
+    /**
+     * The player talked the villager round: they are ready to make peace with a neighbour they had
+     * fallen out with. When the neighbour is ready too, the two are reconciled.
+     */
+    record Reconcile(String with) implements AiEffect {
+        public static final String TYPE = "reconcile";
 
         @Override
         public String type() {

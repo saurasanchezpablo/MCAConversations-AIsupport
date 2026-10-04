@@ -37,7 +37,7 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
                             Optional<AiEffect.Opinion> opinion, Optional<String> directions,
                             int tradeMood, boolean grudge, boolean forgive,
                             Optional<AiInterjection> interjection, Optional<GossipTone> gossip,
-                            List<AiEffect.Action> actions) {
+                            List<AiEffect.Action> actions, Optional<String> reconcile) {
 
     public static final String DECISION_PREFIX = "ai.chat.";
     /** Disposition step for one nudge; a strong judgement moves the axis a little further. */
@@ -73,7 +73,7 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
         if (!reply.structured()) {
             return new AiOutcomePlan(decision, 0, Optional.empty(), Optional.empty(), Map.of(), Optional.empty(), "",
                     Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                    Optional.empty(), 0, false, false, Optional.empty(), Optional.empty(), List.of());
+                    Optional.empty(), 0, false, false, Optional.empty(), Optional.empty(), List.of(), Optional.empty());
         }
         boolean confident = reply.confidence() >= policy.minConfidence();
         boolean gameplay = policy.gameplayEffects() && confident;
@@ -136,6 +136,7 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
         Optional<AiEffect.Opinion> opinion = Optional.empty();
         Optional<String> directions = Optional.empty();
         boolean discount = false;
+        Optional<String> reconcile = Optional.empty();
         if (gameplay) {
             for (AiEffect effect : reply.effects()) {
                 if (effect instanceof AiEffect.Promise p && promise.isEmpty()
@@ -156,6 +157,10 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
                 } else if (effect instanceof AiEffect.Directions d && directions.isEmpty() && !holdsGrudge
                         && !sentiment.negative() && facts.offeredPlaces().contains(d.place())) {
                     directions = Optional.of(d.place());
+                } else if (effect instanceof AiEffect.Reconcile r && reconcile.isEmpty() && !sentiment.negative()
+                        && !holdsGrudge && AiTurnFacts.contains(facts.feuds(), r.with())) {
+                    // Only a feud the villager was shown, and only when the player was not unkind about it.
+                    reconcile = Optional.of(r.with());
                 } else if (effect instanceof AiEffect.Discount && sentiment.positive() && !holdsGrudge
                         && facts.atLeast(RelationshipBand.FRIEND)) {
                     discount = true;
@@ -212,6 +217,6 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
 
         return new AiOutcomePlan(decision, hearts, state, reaction, Collections.unmodifiableMap(dispositions), memory,
                 command, promise, wish, quest, unlock, opinion, directions, tradeMood, grudge, forgive, interjection,
-                gossip, List.copyOf(actions));
+                gossip, List.copyOf(actions), reconcile);
     }
 }
