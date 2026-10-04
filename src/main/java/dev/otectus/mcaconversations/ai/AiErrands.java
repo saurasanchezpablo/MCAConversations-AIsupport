@@ -260,9 +260,14 @@ final class AiErrands {
             try {
                 ServerPlayer player = server.getPlayerList().getPlayer(errand.player);
                 Entity entity = player == null ? null : player.serverLevel().getEntity(errand.villager);
-                keep = player != null && entity instanceof Mob villager && villager.isAlive()
-                        && now - errand.started < TIMEOUT_TICKS + errand.cookTicks
+                boolean timedOut = now - errand.started >= TIMEOUT_TICKS + errand.cookTicks;
+                keep = player != null && entity instanceof Mob villager && villager.isAlive() && !timedOut
                         && step(player.serverLevel(), villager, player, errand, now);
+                if (timedOut && player != null && entity != null && entity.isAlive()) {
+                    // Never a silent give-up: the villager says it did not work out.
+                    say(entity, player, "errand_gave_up",
+                            McaCompat.getVillagerName(entity).orElse(entity.getName().getString()), "");
+                }
                 if (!keep && player != null && entity != null && entity.isAlive()) {
                     McaHandles.runInteraction(entity, player, "stopworking");
                 }

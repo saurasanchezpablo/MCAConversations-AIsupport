@@ -228,12 +228,13 @@ public final class AiConversations {
                     session, offered, now, day);
             AiSocialEffects.Applied social = AiSocialEffects.apply(server, villager, player, villagerName, plan, reply,
                     turn, now, day);
-            // What the player asked the villager to do, by word: a window, an order, a task.
-            AiActions.apply(villager, player, villagerName, plan.actions(), turn, now);
-            if (!opener && plan.actions().isEmpty() && policy.gameplayEffects()) {
-                // The villager agreed in words but the model forgot the action: do what was plainly asked.
-                fallbackAction(villager, player, villagerName, message, reply, plan, turn, now);
-            }
+            // Words and deeds agree: what the villager commits to runs, what they refuse does not, and a line
+            // that promises what cannot happen is rewritten before anyone hears it.
+            AiConsistency.Decision decision = opener || !policy.gameplayEffects() ? AiConsistency.Decision.NONE
+                    : AiConsistency.decide(message, reply, plan, turn.facts());
+            List<AiActions.Result> results = AiActions.apply(villager, player, villagerName, decision.run(), turn, now);
+            List<AiActions.Issue> issues = AiConsistency.issues(decision, results, turn.facts(),
+                    player.getName().getString(), villager);
             // The player talked them into making peace with a neighbour.
             plan.reconcile().ifPresent(with -> {
                 try {
@@ -250,6 +251,15 @@ public final class AiConversations {
                 AiThreats.heroThanks(server, villager, player, now);
             }
             AiMemorySavedData.get(server).edit(villagerId, playerId).snapshot(villagerName, McaCompat.getHearts(player, villager));
+            if (McaConversationsConfig.debugAi()) {
+                McaConversations.LOGGER.info("[ai] consistency villager={} claimed={} ran={} refused={} issues={}", villagerId,
+                        decision.claimed().keySet(), decision.run().stream().map(AiEffect.Action::kind).toList(),
+                        decision.refused(), issues.stream().map(AiActions.Issue::why).toList());
+            }
+            if (!issues.isEmpty()) {
+                repair(server, settings, player, villager, villagerName, message, reply, turn, issues);
+                return Optional.empty();
+            }
             // How the line should sound, sent ahead of MCA delivering it.
             AiVoice.direct(player, villager, reply.dialogue(), reply.emotion(), reply.deliveryOrDefault(), turn.facts());
             if (opener) {
@@ -279,37 +289,40 @@ public final class AiConversations {
     }
 
     /**
-     * The player's request in their own words ({@link AiIntent}), carried out when the model's reply
-     * agreed (not a refusal, not negative) but carried no action, and only if it is one the villager
-     * was offered this turn.
+     * The villager committed to something the game could not do: the line is rewritten so it is true
+     * ({@link AiRepair}) and only then spoken; if that fails, a short scripted line that is true is said
+     * instead. The original line is never heard.
      */
-    private static void fallbackAction(Entity villager, ServerPlayer player, String villagerName, String message,
-                                       AiReply reply, AiOutcomePlan plan, AiSocial.Turn turn, long now) {
-        Optional<AiIntent.Intent> intent = AiIntent.detect(message);
-        if (intent.isEmpty() || reply.sentiment().negative()
-                || reply.deliveryOrDefault().intent() == dev.otectus.mcaconversations.voice.VoiceIntent.REFUSE) {
-            return;
-        }
-        AiIntent.Intent want = intent.get();
-        AiTurnFacts facts = turn.facts();
-        boolean grudge = facts.grudge() && !plan.forgive();
-        boolean offered = facts.offeredActions().contains(want.kind().key())
-                && (want.kind() != AiActionKind.WORK || want.chore().map(c -> facts.offeredChores().contains(c.key())).orElse(false))
-                && (!grudge || AiOutcomePlan.ACTIONS_DESPITE_GRUDGE.contains(want.kind()));
-        if (!offered) {
-            if (McaConversationsConfig.debugAi()) {
-                McaConversations.LOGGER.info("[ai] intent {} not offered to this villager now; left to the reply",
-                        want.kind());
-            }
-            return;
-        }
-        List<String> helpers = want.everyone() && AiOutcomePlan.GROUP_ACTIONS.contains(want.kind())
-                && !facts.helpers().isEmpty() ? List.of(AiEffect.Action.ALL) : List.of();
-        AiEffect.Action action = new AiEffect.Action(want.kind(), want.chore(), want.amount(), want.item(), "", helpers);
-        if (McaConversationsConfig.debugAi()) {
-            McaConversations.LOGGER.info("[ai] intent fallback: {} from \"{}\"", action, message);
-        }
-        AiActions.apply(villager, player, villagerName, List.of(action), turn, now);
+    private static void repair(MinecraftServer server, McaChatAi.Settings settings, ServerPlayer player, Entity villager,
+                               String villagerName, String message, AiReply reply, AiSocial.Turn turn,
+                               List<AiActions.Issue> issues) {
+        UUID playerId = player.getUUID();
+        UUID villagerId = villager.getUUID();
+        List<String> truths = issues.stream().map(AiActions.Issue::why).distinct().toList();
+        AiRepair.rewrite(settings, villagerName, player.getName().getString(), replyLanguage(player, settings.language()),
+                        reply.dialogue(), truths)
+                .thenAcceptAsync(fixed -> {
+                    ServerPlayer live = server.getPlayerList().getPlayer(playerId);
+                    Entity speaker = live == null ? null : live.serverLevel().getEntity(villagerId);
+                    if (live == null || speaker == null || !speaker.isAlive()) {
+                        return;
+                    }
+                    AiSessions.Session session = SESSIONS.session(villagerId, playerId);
+                    if (fixed.isPresent()) {
+                        if (McaConversationsConfig.debugAi()) {
+                            McaConversations.LOGGER.info("[ai] line rewritten to match the game: \"{}\" -> \"{}\"",
+                                    reply.dialogue(), fixed.get());
+                        }
+                        AiVoice.direct(live, speaker, fixed.get(), reply.emotion(), reply.deliveryOrDefault(), turn.facts());
+                        session.recordExchange(message, fixed.get());
+                        deliver(server, playerId, villagerId, fixed.get());
+                    } else {
+                        AiActions.Issue first = issues.get(0);
+                        session.recordExchange(message, first.fallback().getString());
+                        AiLines.say(speaker, live, first.fallback(), villagerName, AiEmotion.NEUTRAL,
+                                dev.otectus.mcaconversations.voice.VoiceIntent.STATEMENT);
+                    }
+                }, server);
     }
 
     /** The validated life effects of a reply; each one is checked again against the game as it is applied. */

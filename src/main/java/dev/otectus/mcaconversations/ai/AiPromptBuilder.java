@@ -139,6 +139,10 @@ public final class AiPromptBuilder {
         for (String offer : in.offers()) {
             sb.append("- ").append(offer).append('\n');
         }
+        sb.append("Your words and your deeds must agree. If you say you will do something, include its action. ")
+                .append("If an action is not listed above, you cannot do it right now: do not pretend you will, say so ")
+                .append("honestly or ask for what you would need. The game checks, and a line that promises what cannot ")
+                .append("happen is not said.\n");
         sb.append("How to fill it in:\n");
         sb.append("- impact: how ").append(player).append("'s last message changes how ").append(villager)
                 .append(" feels about them, judged by what was meant (not by single words), by ").append(villager)

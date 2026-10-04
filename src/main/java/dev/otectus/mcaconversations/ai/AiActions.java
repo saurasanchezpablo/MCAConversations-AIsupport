@@ -28,25 +28,48 @@ final class AiActions {
     private AiActions() {
     }
 
-    static void apply(Entity villager, ServerPlayer player, String villagerName, List<AiEffect.Action> actions,
-                      AiSocial.Turn turn, long now) {
-        for (AiEffect.Action action : actions) {
-            try {
-                apply(villager, player, villagerName, action, turn, now);
-            } catch (Throwable t) {
-                McaConversations.LOGGER.debug("AI action {} failed; skipped", action.kind(), t);
-            }
+    /**
+     * Why something the villager said they would do did not happen: in words for the model, which
+     * rewrites the line so it is true, and as a scripted line if that fails.
+     */
+    record Issue(String why, net.minecraft.network.chat.MutableComponent fallback) {
+    }
+
+    /** What became of one action: done (or under way, or a window opened for it), or not, and why. */
+    record Result(AiActionKind kind, boolean done, Issue issue) {
+        static Result ok(AiActionKind kind) {
+            return new Result(kind, true, null);
+        }
+
+        static Result failed(AiActionKind kind, Issue issue) {
+            return new Result(kind, false, issue);
         }
     }
 
-    private static void apply(Entity villager, ServerPlayer player, String villagerName, AiEffect.Action action,
+    static List<Result> apply(Entity villager, ServerPlayer player, String villagerName, List<AiEffect.Action> actions,
                               AiSocial.Turn turn, long now) {
+        List<Result> results = new java.util.ArrayList<>();
+        for (AiEffect.Action action : actions) {
+            try {
+                results.add(apply(villager, player, villagerName, action, turn, now));
+            } catch (Throwable t) {
+                McaConversations.LOGGER.debug("AI action {} failed; skipped", action.kind(), t);
+                results.add(Result.failed(action.kind(), new Issue("something went wrong and you could not do it",
+                        AiLines.variant("cannot.generic"))));
+            }
+        }
+        return results;
+    }
+
+    private static Result apply(Entity villager, ServerPlayer player, String villagerName, AiEffect.Action action,
+                                AiSocial.Turn turn, long now) {
         List<Entity> helpers = helpers(villager, player, action, turn);
         if (!helpers.isEmpty()) {
             group(villager, player, villagerName, action, turn, helpers, now);
-            return;
+            return Result.ok(action.kind());
         }
-        switch (action.kind()) {
+        AiActionKind kind = action.kind();
+        switch (kind) {
             case TRADE -> later(villager, player, "trade", now);
             case INVENTORY -> later(villager, player, "inventory", now);
             // The player chooses what to give, from their whole inventory, in the gift window.
@@ -59,7 +82,11 @@ final class AiActions {
                 VillagerAttention.release(villager);
                 McaHandles.runInteraction(villager, player, "FOLLOW");
             }
-            case STAY -> McaHandles.runInteraction(villager, player, "STAY");
+            case STAY -> {
+                if (!McaHandles.runInteraction(villager, player, "STAY")) {
+                    return Result.failed(kind, generic());
+                }
+            }
             case MOVE -> {
                 VillagerAttention.release(villager);
                 McaHandles.runInteraction(villager, player, "MOVE");
@@ -69,13 +96,32 @@ final class AiActions {
                 McaHandles.runInteraction(villager, player, "gohome");
             }
             case ARMOR -> McaHandles.runInteraction(villager, player, "armor");
-            case WORK -> action.chore().ifPresent(chore -> work(villager, player, villagerName, chore, action.amount(), now));
+            case WORK -> {
+                AiChore chore = action.chore().orElse(null);
+                if (chore == null) {
+                    return Result.failed(kind, generic());
+                }
+                Work work = work(villager, player, villagerName, chore, action.amount(), now, false);
+                if (work == Work.NEEDS_TOOL) {
+                    Component tool = Component.translatable("mcaconversations.ai.tool." + chore.key());
+                    return Result.failed(kind, new Issue("you have no " + chore.tool() + " to do it; a window has just "
+                            + "opened for the player to lend you one, so ask them for it (you start as soon as you have it)",
+                            AiLines.variant("work_no_tool", tool)));
+                }
+                if (work == Work.REFUSED) {
+                    return Result.failed(kind, generic());
+                }
+            }
             case STOP_WORK -> {
                 AiWork.stop(villager.getUUID(), true);
                 AiErrands.stop(villager.getUUID());
                 McaHandles.runInteraction(villager, player, "stopworking");
             }
-            case GUIDE, WAIT_AT, PICK_UP, STORE, FETCH, BREED -> AiErrands.start(villager, player, action, turn, villagerName, now);
+            case GUIDE, WAIT_AT, PICK_UP, STORE, FETCH, BREED -> {
+                if (!AiErrands.start(villager, player, action, turn, villagerName, now)) {
+                    return Result.failed(kind, new Issue("you do not know where that place is", AiLines.variant("cannot.generic")));
+                }
+            }
             // The player puts what to cook (and any fuel) in the cooking window; the errand starts when it closes.
             case COOK -> AiTasks.schedule(now + SCREEN_DELAY_TICKS, () -> {
                 if (villager.isAlive() && !player.hasDisconnected() && villager.distanceTo(player) <= 8) {
@@ -83,33 +129,50 @@ final class AiActions {
                             AiErrands.startCook(villager, player, handed, villagerName, player.serverLevel().getGameTime()));
                 }
             });
-            case GIVE -> handOver(villager, player, villagerName, action.item(), action.amount(), now);
+            case GIVE -> {
+                if (!handOver(villager, player, villagerName, action.item(), action.amount(), now, false)) {
+                    return Result.failed(kind, new Issue("you have nothing gathered to give right now",
+                            AiLines.variant("give_nothing")));
+                }
+            }
             case BUILD -> openBuild(villager, player, action, List.of(), now);
             case DATE -> AiDates.agree(villager, player, villagerName, action, turn, now);
         }
+        return Result.ok(kind);
     }
+
+    private static Issue generic() {
+        return new Issue("you could not do it right now", AiLines.variant("cannot.generic"));
+    }
+
+    enum Work { STARTED, NEEDS_TOOL, REFUSED }
 
     /**
      * Sends the villager to work. Without the tool for it, they say so and a window opens to lend them
      * one; the moment they have it, they get going.
      */
-    static void work(Entity villager, ServerPlayer player, String villagerName, AiChore chore, int amount, long now) {
+    static Work work(Entity villager, ServerPlayer player, String villagerName, AiChore chore, int amount, long now,
+                     boolean speak) {
         if (AiWork.start(villager, player, chore, amount, villagerName, now)) {
-            return;
+            return Work.STARTED;
         }
         if (AiWork.hasTool(villager, chore)) {
-            return; // MCA refused the chore itself; nothing more to do here
+            return Work.REFUSED; // MCA refused the chore itself
         }
         AiWork.awaitTool(villager, player, chore, amount, now);
-        AiLines.sayLater(villager, player, AiLines.variant("work_no_tool",
-                        Component.translatable("mcaconversations.ai.tool." + chore.key())), villagerName, now, 20,
-                AiEmotion.NEUTRAL, VoiceIntent.QUESTION);
-        AiTasks.schedule(now + SCREEN_DELAY_TICKS + 20, () -> {
+        if (speak) {
+            AiLines.sayLater(villager, player, AiLines.variant("work_no_tool",
+                            Component.translatable("mcaconversations.ai.tool." + chore.key())), villagerName, now, 20,
+                    AiEmotion.NEUTRAL, VoiceIntent.QUESTION);
+        }
+        // After the villager has asked for it (their line comes first, rewritten if need be).
+        AiTasks.schedule(now + (speak ? SCREEN_DELAY_TICKS + 20 : 100), () -> {
             if (villager.isAlive() && !player.hasDisconnected() && villager.distanceTo(player) <= 8) {
                 AiHandoverMenu.open(player, villager, "mcaconversations.ai.tool_title", 1,
                         handed -> lend(villager, player, villagerName, handed));
             }
         });
+        return Work.NEEDS_TOOL;
     }
 
     /**
@@ -147,16 +210,18 @@ final class AiActions {
      * "Give me what you gathered": a villager working for the player comes back with it; otherwise
      * they hand over what they carry, everything gathered ({@code all}) or the item named.
      */
-    static void handOver(Entity villager, ServerPlayer player, String villagerName, String item, int amount, long now) {
+    static boolean handOver(Entity villager, ServerPlayer player, String villagerName, String item, int amount, long now,
+                            boolean speak) {
         if ((item.isEmpty() || item.equals(AiIntent.ALL)) && AiWork.bringBack(villager, player, now)) {
-            return;
+            return true;
         }
         int given = item.isEmpty() || item.equals(AiIntent.ALL) ? giveGathered(villager, player)
                 : give(villager, player, item, Math.max(1, amount == 0 ? 64 : amount));
-        if (given == 0) {
+        if (given == 0 && speak) {
             AiLines.sayLater(villager, player, AiLines.variant("give_nothing"), villagerName, now, 20,
                     AiEmotion.NEUTRAL, VoiceIntent.STATEMENT);
         }
+        return given > 0;
     }
 
     /** Hands over everything the villager gathered (what any task brings in), keeping their tools. */

@@ -94,7 +94,8 @@ final class AiIntent {
             rule("\\b(guarda|guardar|mete|meter) (esto|eso|tus cosas|lo que llevas|todo) en el (cofre|baul)|"
                     + "(store|put) (it|that|everything|your stuff) in the chest\\b", AiActionKind.STORE),
             // moving
-            rule("\\b(sigueme|seguidme|ven conmigo|venid conmigo|acompaname|follow me|come with me)\\b",
+            rule("\\b(sigueme|seguidme|ven conmigo|venid conmigo|vienes conmigo|vente conmigo|acompaname|me acompanas|"
+                    + "follow me|come with me|are you coming)\\b",
                     AiActionKind.FOLLOW),
             rule("\\b(quedate (aqui|quieto|ahi)|espera(me)? aqui|no te muevas|stay (here|put)|wait here)\\b",
                     AiActionKind.STAY),

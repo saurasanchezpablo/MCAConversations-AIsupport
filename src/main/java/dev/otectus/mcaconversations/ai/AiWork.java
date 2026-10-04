@@ -400,7 +400,18 @@ final class AiWork {
         if (job.phase == Phase.WORKING) {
             String current = McaCompat.getCurrentChore(villager).orElse("NONE").toUpperCase(java.util.Locale.ROOT);
             if (!current.equals(job.chore.mcaChoreName())) {
-                return false; // MCA dropped the chore (no tool left, told to stop, player away)
+                // MCA dropped the chore (the tool broke, nothing left to work nearby). Say so, and bring back
+                // whatever was gathered rather than leaving the player wondering.
+                AiLines.say(villager, player, AiLines.variant("work_gave_up",
+                                Component.translatable("mcaconversations.ai.chore." + job.chore.key())), name,
+                        AiEmotion.SAD, dev.otectus.mcaconversations.voice.VoiceIntent.STATEMENT);
+                if (got <= 0) {
+                    return false;
+                }
+                McaHandles.runInteraction(villager, player, "FOLLOW");
+                job.phase = Phase.RETURNING;
+                job.phaseSince = now;
+                return true;
             }
             boolean full = inventoryFull(McaHandles.inventory(villager));
             if ((job.goal > 0 && got >= job.goal) || full) {

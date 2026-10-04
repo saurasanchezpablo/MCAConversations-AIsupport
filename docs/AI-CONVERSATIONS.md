@@ -568,6 +568,34 @@ The diary lists:
 - **Right-click while holding an item, mid-conversation:** a tool is lent; anything else is gifted
   through MCA's own gift handling.
 
+### Words and deeds agree (`AiConsistency`, `AiCommitment`, `AiRepair`)
+Before a villager's line is spoken, the game checks it against what actually happens.
+
+1. **What they commit to runs.** A commitment can be:
+   - an action the model attached;
+   - a plain yes ("¡claro!", "vale", "sure") to what the player asked (`AiIntent`);
+   - a first-person promise in the line ("voy a talar", "te sigo", "aquí tienes", "I'll go fishing"), counted
+     only when the player was asking for something.
+
+   Each still has to be offered to this villager now. Plans for later ("mañana voy a talar") and
+   negated promises do not count.
+2. **What they refuse does not run.** On a refusal ("no pienso", "lo siento, pero no", "I won't", or
+   delivery intent `refuse`), no action runs on the villager's behalf except stop_work, move and
+   go_home.
+3. **What cannot happen is not said.** Some commitments fail: no tool, nothing gathered to give, a
+   grudge, no furnace or chest nearby, a child asked to work, not a trader. When that happens, the line
+   is rewritten by a short second request (`AiRepair`, 12 s) before anyone hears it. The rewrite is
+   told what is true, for example "you have no axe; a window has opened for the player to lend you
+   one: ask for it". If the request fails, a scripted truthful line is said instead (`cannot.*`,
+   `work_no_tool`, `give_nothing`). The original line is never delivered.
+4. **Interrupted tasks are announced.** If MCA drops a chore halfway (the tool broke, nothing left
+   nearby), the villager says so (`work_gave_up`) and brings back what they gathered. An errand that
+   times out is also announced (`errand_gave_up`).
+
+The prompt also tells the model that its words and deeds must agree, and that a line promising what
+cannot happen will not be said. With `debugAi` on, each turn logs `[ai] consistency claimed=... ran=...
+refused=... issues=...` and every rewrite.
+
 ## Voice (acting TTS)
 
 Villagers speak their lines aloud with acting: the emotion, what the line is for, their mood, grief,
