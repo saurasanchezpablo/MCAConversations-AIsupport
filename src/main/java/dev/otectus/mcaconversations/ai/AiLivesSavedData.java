@@ -111,6 +111,8 @@ public final class AiLivesSavedData extends SavedData {
     private final Map<UUID, Map<String, Integer>> skills = new HashMap<>();
     private final Map<String, Long> taught = new HashMap<>();
     private final List<Betrayal> betrayals = new ArrayList<>();
+    /** What each player has lent each villager: item id to count, by {@code villager/player}. */
+    private final Map<String, Map<String, Integer>> loans = new HashMap<>();
 
     public static AiLivesSavedData get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(
@@ -202,6 +204,42 @@ public final class AiLivesSavedData extends SavedData {
         return true;
     }
 
+    // --- loans ---------------------------------------------------------------------------------------
+
+    void addLoan(UUID villager, UUID player, String item, int count) {
+        if (count <= 0) {
+            return;
+        }
+        loans.computeIfAbsent(key(villager, player), k -> new HashMap<>()).merge(item, count, Integer::sum);
+        setDirty();
+    }
+
+    /** Marks up to {@code count} of {@code item} as returned; returns how many of them were on loan. */
+    int returnLoan(UUID villager, UUID player, String item, int count) {
+        Map<String, Integer> lent = loans.get(key(villager, player));
+        if (lent == null || count <= 0) {
+            return 0;
+        }
+        int held = lent.getOrDefault(item, 0);
+        int back = Math.min(held, count);
+        if (back > 0) {
+            if (held - back <= 0) {
+                lent.remove(item);
+            } else {
+                lent.put(item, held - back);
+            }
+            if (lent.isEmpty()) {
+                loans.remove(key(villager, player));
+            }
+            setDirty();
+        }
+        return back;
+    }
+
+    Map<String, Integer> loans(UUID villager, UUID player) {
+        return Map.copyOf(loans.getOrDefault(key(villager, player), Map.of()));
+    }
+
     // --- secrets -------------------------------------------------------------------------------------
 
     List<Betrayal> betrayals() {
@@ -225,6 +263,7 @@ public final class AiLivesSavedData extends SavedData {
         boolean changed = dates.removeIf(d -> d.villager.equals(villager));
         changed |= betrayals.removeIf(b -> b.owner().equals(villager));
         changed |= skills.remove(villager) != null;
+        changed |= loans.keySet().removeIf(k -> k.startsWith(villager + "/"));
         if (changed) {
             setDirty();
         }
@@ -261,6 +300,13 @@ public final class AiLivesSavedData extends SavedData {
         }
         CompoundTag taughtTag = tag.getCompound("taught");
         taughtTag.getAllKeys().forEach(k -> data.taught.put(k, taughtTag.getLong(k)));
+        CompoundTag loanTag = tag.getCompound("loans");
+        for (String k : loanTag.getAllKeys()) {
+            CompoundTag items = loanTag.getCompound(k);
+            Map<String, Integer> map = new HashMap<>();
+            items.getAllKeys().forEach(i -> map.put(i, items.getInt(i)));
+            data.loans.put(k, map);
+        }
         ListTag betrayalList = tag.getList("betrayals", Tag.TAG_COMPOUND);
         for (int i = 0; i < betrayalList.size(); i++) {
             CompoundTag b = betrayalList.getCompound(i);
@@ -308,6 +354,13 @@ public final class AiLivesSavedData extends SavedData {
             betrayalList.add(t);
         }
         tag.put("betrayals", betrayalList);
+        CompoundTag loanTag = new CompoundTag();
+        loans.forEach((k, items) -> {
+            CompoundTag t = new CompoundTag();
+            items.forEach(t::putInt);
+            loanTag.put(k, t);
+        });
+        tag.put("loans", loanTag);
         return tag;
     }
 }

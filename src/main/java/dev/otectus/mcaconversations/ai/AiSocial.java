@@ -175,6 +175,7 @@ final class AiSocial {
         ownLife.addAll(AiSkills.promptLines(server, villager, playerName));
         ownLife.addAll(AiChildhood.promptLines(server, villager, player));
         ownLife.addAll(AiDates.promptLines(server, villagerId, player));
+        ownLife.addAll(AiBag.promptLines(server, villager, player));
         ownLife.addAll(AiSecrets.promptLines(pair, playerName, band.isAtLeast(RelationshipBand.FRIEND) || roles.any()));
         sections.add(new AiContextSection("Your life lately", ownLife));
         sections.add(new AiContextSection("What you can see of " + playerName,

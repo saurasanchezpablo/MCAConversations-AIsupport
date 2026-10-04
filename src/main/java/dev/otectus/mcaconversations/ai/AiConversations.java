@@ -703,6 +703,7 @@ public final class AiConversations {
         AiErrands.forgetPlayer(player);
         AiBuild.forgetPlayer(player);
         AiBubbles.forgetPlayer(player.getUUID());
+        AiBag.forget(player.getUUID());
         onPlayerLogout(player.getUUID());
     }
 
@@ -733,5 +734,6 @@ public final class AiConversations {
         AiBuild.reset();
         AiSmallTalk.reset();
         AiThreats.reset();
+        AiBag.reset();
     }
 }

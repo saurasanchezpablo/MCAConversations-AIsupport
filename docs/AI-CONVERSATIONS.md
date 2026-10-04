@@ -596,6 +596,34 @@ The prompt also tells the model that its words and deeds must agree, and that a 
 cannot happen will not be said. With `debugAi` on, each turn logs `[ai] consistency claimed=... ran=...
 refused=... issues=...` and every rewrite.
 
+### The villager's bag (`AiBag`)
+When a player opens a villager's own inventory (MCA's screen), the contents are noted, and on close
+the game sees what moved. Everything that moved is sorted:
+
+| Moved | Read as |
+|---|---|
+| Taken, and it was lent by this player | taking it back (fine). If it was the tool for a job in progress, the job stops and the villager says so |
+| Taken, and it is the yield of a job for this player | fine, it was for them |
+| Taken, anything else | the villager's own things, judged by `AiBag.judge` (below) |
+| Put in, a tool | a loan, recorded in `AiLivesSavedData`; it also resumes a job waiting for that tool |
+| Put in, something useful | +1 heart a day, a memory |
+| Put in, junk | a puzzled memory |
+
+Taking the villager's own things is judged by closeness and a rough value. Diamonds, emeralds and
+netherite are worth 10 each, enchanted items and gold 4, tools and ingots 4, ordinary items next to
+nothing.
+
+| Closeness | Fine | Mild (−1) | Upset (−3, annoyed) | Theft (−5, grudge, high memory) |
+|---|---|---|---|---|
+| Family, spouse, confidant | value < 20 | value ≥ 20 | | |
+| Friend | value ≤ 5 | value ≤ 20 | value > 20 | |
+| Acquaintance | | value ≤ 2 | value ≤ 20 | value > 20 |
+| Stranger, tense | | | value ≤ 5 | value > 5 |
+
+The game applies the consequences. The model only voices the reaction: an opener turn is told
+exactly what happened and how the villager feels, so the words match the consequences. Tools lent
+through the lend window are recorded as loans too, and the prompt lists what the villager holds on loan.
+
 ## Voice (acting TTS)
 
 Villagers speak their lines aloud with acting: the emotion, what the line is for, their mood, grief,

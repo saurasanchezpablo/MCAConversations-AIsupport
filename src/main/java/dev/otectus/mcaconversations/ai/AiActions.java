@@ -186,10 +186,16 @@ final class AiActions {
             return false;
         }
         boolean took = false;
+        AiLivesSavedData lives = player.getServer() == null ? null : AiLivesSavedData.get(player.getServer());
         for (ItemStack stack : handed) {
             int before = stack.getCount();
             ItemStack rest = AiErrands.insert(inventory, stack.copy());
             took |= rest.getCount() < before;
+            if (lives != null && rest.getCount() < before) {
+                // A loan: taking it back later is the player's right, not theft.
+                lives.addLoan(villager.getUUID(), player.getUUID(),
+                        String.valueOf(BuiltInRegistries.ITEM.getKey(stack.getItem())), before - rest.getCount());
+            }
             if (!rest.isEmpty()) {
                 player.getInventory().placeItemBackInInventory(rest);
             }
