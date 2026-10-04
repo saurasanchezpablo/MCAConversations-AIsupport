@@ -1,6 +1,7 @@
 package dev.otectus.mcaconversations.ai;
 
 import dev.otectus.mcaconversations.McaConversations;
+import dev.otectus.mcaconversations.McaConversationsConfig;
 import dev.otectus.mcaconversations.compat.McaCompat;
 import dev.otectus.mcaconversations.compat.mca.McaHandles;
 import dev.otectus.mcaconversations.chat.VillagerAttention;
@@ -101,6 +102,16 @@ final class AiWork {
         int digTicks;
         int digNeeded;
         final Set<BlockPos> unreachable = new HashSet<>();
+        /** Digging a staircase down to stone when none is exposed nearby. */
+        BlockPos stairStart;
+        Direction stairDir;
+        int stairStep = 1;
+        BlockPos stairStand;
+        boolean stairTarget;
+        /** The staircase's steps: never mined, or the villager could not climb back out. */
+        final Set<BlockPos> steps = new HashSet<>();
+        /** Nothing left to mine within reach: the villager says so and comes back. */
+        boolean gaveUp;
 
         Job(UUID villager, UUID player, AiChore chore, int goal, int baseline, ServerBossEvent bar, Group group, long now) {
             this.villager = villager;
@@ -399,12 +410,18 @@ final class AiWork {
         }
         if (job.phase == Phase.WORKING) {
             String current = McaCompat.getCurrentChore(villager).orElse("NONE").toUpperCase(java.util.Locale.ROOT);
-            if (!current.equals(job.chore.mcaChoreName())) {
+            boolean reachedGoal = job.goal > 0 && got >= job.goal;
+            if (!current.equals(job.chore.mcaChoreName()) || job.gaveUp && !reachedGoal) {
+                if (McaConversationsConfig.debugAi()) {
+                    McaConversations.LOGGER.info("[ai] work {} ended early: chore={} gaveUp={} got={} at {}", job.chore,
+                            current, job.gaveUp, got, villager.blockPosition());
+                }
                 // MCA dropped the chore (the tool broke, nothing left to work nearby). Say so, and bring back
                 // whatever was gathered rather than leaving the player wondering.
                 AiLines.say(villager, player, AiLines.variant("work_gave_up",
                                 Component.translatable("mcaconversations.ai.chore." + job.chore.key())), name,
                         AiEmotion.SAD, dev.otectus.mcaconversations.voice.VoiceIntent.STATEMENT);
+                McaHandles.runInteraction(villager, player, "stopworking");
                 if (got <= 0) {
                     return false;
                 }
@@ -438,6 +455,10 @@ final class AiWork {
             return false;
         }
         if (now - job.phaseSince > RETURN_TIMEOUT_TICKS) {
+            if (McaConversationsConfig.debugAi()) {
+                McaConversations.LOGGER.info("[ai] work {} could not get back to the player: villager at {}, player at {}",
+                        job.chore, villager.blockPosition(), player.blockPosition());
+            }
             McaHandles.runInteraction(villager, player, "MOVE");
             return false;
         }
@@ -482,6 +503,99 @@ final class AiWork {
 
     // --- this mod's mining ------------------------------------------------------------------------
 
+    static final int MAX_STAIR_STEPS = 40;
+
+    /** Natural ground a villager may dig through: soil, sand, gravel, clay, stone and ores. Never buildings or liquids. */
+    static boolean diggable(ServerLevel level, BlockPos pos, BlockState state) {
+        if (state == null || state.isAir() || state.hasBlockEntity() || !state.getFluidState().isEmpty()) {
+            return false;
+        }
+        float hardness = state.getDestroySpeed(level, pos);
+        if (hardness < 0 || hardness > 50) {
+            return false;
+        }
+        return state.is(BlockTags.BASE_STONE_OVERWORLD) || state.is(Tags.Blocks.ORES) || state.is(BlockTags.DIRT)
+                || state.is(BlockTags.SAND) || state.is(Tags.Blocks.GRAVELS) || state.is(net.minecraft.world.level.block.Blocks.CLAY)
+                || state.is(Tags.Blocks.COBBLESTONES) || state.is(net.minecraft.world.level.block.Blocks.DIRT_PATH)
+                || state.is(net.minecraft.world.level.block.Blocks.FARMLAND);
+    }
+
+    private static boolean nearLiquid(ServerLevel level, BlockPos pos) {
+        for (Direction d : Direction.values()) {
+            if (!level.getFluidState(pos.relative(d)).isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The blocks one stair step down needs cleared: room for head and feet, and for the step down. */
+    private static BlockPos[] stepBlocks(BlockPos feet) {
+        return new BlockPos[]{feet.above(2), feet.above(), feet};
+    }
+
+    private static boolean stairWay(ServerLevel level, BlockPos start, Direction dir) {
+        for (int step = 1; step <= 3; step++) {
+            BlockPos feet = start.relative(dir, step).below(step);
+            for (BlockPos b : stepBlocks(feet)) {
+                BlockState st = level.getBlockState(b);
+                if (!(st.isAir() || st.canBeReplaced() && st.getFluidState().isEmpty() || diggable(level, b, st))
+                        || nearLiquid(level, b)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The next block to dig for a staircase going down from where the villager started, or null when the
+     * way is blocked (a building, water, lava, a cave) or deep enough. Loose plants in the way are cleared.
+     */
+    private static BlockPos nextStair(ServerLevel level, Mob villager, Job job) {
+        if (job.stairStart == null) {
+            job.stairStart = villager.blockPosition();
+            job.steps.add(job.stairStart.below());
+            for (Direction dir : Direction.Plane.HORIZONTAL) {
+                if (stairWay(level, job.stairStart, dir)) {
+                    job.stairDir = dir;
+                    break;
+                }
+            }
+        }
+        if (job.stairDir == null) {
+            return null;
+        }
+        while (job.stairStep <= MAX_STAIR_STEPS) {
+            BlockPos feet = job.stairStart.relative(job.stairDir, job.stairStep).below(job.stairStep);
+            if (feet.getY() < level.getMinBuildHeight() + 6) {
+                return null;
+            }
+            for (BlockPos b : stepBlocks(feet)) {
+                BlockState st = level.getBlockState(b);
+                if (st.isAir()) {
+                    continue;
+                }
+                if (st.canBeReplaced() && st.getFluidState().isEmpty()) {
+                    level.destroyBlock(b, false, villager); // a tuft of grass or a flower
+                    continue;
+                }
+                if (!diggable(level, b, st) || nearLiquid(level, b)) {
+                    return null;
+                }
+                job.stairStand = job.stairStep == 1 ? job.stairStart
+                        : job.stairStart.relative(job.stairDir, job.stairStep - 1).below(job.stairStep - 1);
+                return b;
+            }
+            if (!level.getBlockState(feet.below()).isFaceSturdy(level, feet.below(), Direction.UP)) {
+                return null; // a cave or a drop below: not safe to go on
+            }
+            job.steps.add(feet.below().immutable());
+            job.stairStep++;
+        }
+        return null;
+    }
+
     static boolean minable(ServerLevel level, BlockPos pos, BlockState state, ItemStack tool) {
         if (!(state.is(BlockTags.BASE_STONE_OVERWORLD) || state.is(Tags.Blocks.ORES) || state.is(Tags.Blocks.COBBLESTONES))) {
             return false;
@@ -512,8 +626,10 @@ final class AiWork {
             villager.setItemInHand(InteractionHand.MAIN_HAND, inventory.getItem(slot));
             tool = villager.getMainHandItem();
         }
-        if (job.target != null && (!minable(level, job.target, level.getBlockState(job.target), tool)
-                || now - job.targetSince > REACH_TIMEOUT_TICKS && job.digTicks == 0)) {
+        BlockState current = job.target == null ? null : level.getBlockState(job.target);
+        boolean stillThere = job.target != null && (job.stairTarget ? diggable(level, job.target, current)
+                : minable(level, job.target, current, tool));
+        if (job.target != null && (!stillThere || now - job.targetSince > REACH_TIMEOUT_TICKS && job.digTicks == 0)) {
             if (job.digTicks == 0) {
                 job.unreachable.add(job.target);
             }
@@ -524,12 +640,24 @@ final class AiWork {
             if (now % 20 != 0) {
                 return;
             }
-            job.target = findStone(level, villager.blockPosition(), tool, job.unreachable);
+            Set<BlockPos> skip = new HashSet<>(job.unreachable);
+            skip.addAll(job.steps);
+            skip.add(villager.blockPosition().below()); // never the ground under their own feet
+            // Once digging down, only the staircase itself is dug: loose stone in its walls would break
+            // the way back up.
+            job.target = job.stairStart == null ? findStone(level, villager.blockPosition(), tool, skip) : null;
+            job.stairTarget = false;
+            if (job.target == null) {
+                // No stone in sight (it is under the grass): dig a staircase down to it, as a player would.
+                job.target = nextStair(level, villager, job);
+                job.stairTarget = job.target != null;
+                if (job.target == null) {
+                    job.gaveUp = true;
+                    return;
+                }
+            }
             job.targetSince = now;
             job.digTicks = 0;
-            if (job.target == null) {
-                return;
-            }
             BlockState state = level.getBlockState(job.target);
             // A practised miner digs faster.
             double skill = AiSkills.speed(AiSkills.level(level.getServer(), entity.getUUID(), AiChore.MINE));
@@ -540,7 +668,8 @@ final class AiWork {
         double distance = villager.distanceToSqr(target.getX() + 0.5, target.getY() + 0.5, target.getZ() + 0.5);
         if (distance > 2.8 * 2.8) {
             if (now % 10 == 0) {
-                villager.getNavigation().moveTo(target.getX() + 0.5, target.getY(), target.getZ() + 0.5, 0.6);
+                BlockPos goal = job.stairTarget && job.stairStand != null ? job.stairStand : target;
+                villager.getNavigation().moveTo(goal.getX() + 0.5, goal.getY(), goal.getZ() + 0.5, 0.6);
             }
             return;
         }
@@ -562,10 +691,16 @@ final class AiWork {
                 level.addFreshEntity(new ItemEntity(level, villager.getX(), villager.getY() + 0.5, villager.getZ(), rest));
             }
         }
+        int yielded = 0;
+        for (ItemStack drop : Block.getDrops(state, level, target, level.getBlockEntity(target), villager, tool)) {
+            if (yieldOf(AiChore.MINE).test(drop)) {
+                yielded += drop.getCount();
+            }
+        }
         level.destroyBlockProgress(villager.getId(), target, -1);
         level.destroyBlock(target, false, villager);
         tool.hurtAndBreak(1, villager, EquipmentSlot.MAINHAND);
-        job.mined++;
+        job.mined += yielded; // dirt dug on the way down is not what was asked for
         job.target = null;
         job.digTicks = 0;
     }

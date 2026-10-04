@@ -129,6 +129,9 @@ public final class AiConversations {
             if (opener) {
                 return CompletableFuture.completedFuture(Optional.empty());
             }
+            // The villager is still answering (or just answered): the player's words are not lost, they
+            // are heard as soon as the villager is free.
+            queue(server, villagerId, playerId, message, now);
             player.displayClientMessage(Component.translatable(admission == AiSessions.Admission.IN_FLIGHT
                     ? "mcaconversations.ai.busy" : "mcaconversations.ai.wait", villagerName)
                     .withStyle(ChatFormatting.GRAY), true);
@@ -184,12 +187,16 @@ public final class AiConversations {
                             policy, offered, settings, turn, opener), server)
                     .exceptionally(t -> {
                         McaConversations.LOGGER.error("AI conversation turn failed; nothing was applied", t);
-                        server.execute(() -> SESSIONS.finish(villagerId, playerId, now));
+                        server.execute(() -> {
+                            SESSIONS.finish(villagerId, playerId, now);
+                            drainQueued(server, villagerId, playerId, now);
+                        });
                         return Optional.empty();
                     });
         } catch (RuntimeException | Error t) {
             // Never leave the pair stuck "in flight" because building the request threw.
             SESSIONS.finish(villagerId, playerId, now);
+            drainQueued(server, villagerId, playerId, now);
             throw t;
         }
     }
@@ -288,6 +295,7 @@ public final class AiConversations {
             return Optional.of(reply.dialogue());
         } finally {
             SESSIONS.finish(villagerId, playerId, now);
+            drainQueued(server, villagerId, playerId, now);
         }
     }
 
@@ -422,6 +430,36 @@ public final class AiConversations {
     }
 
     /** The villager this player is in an AI conversation with, if it is still live. */
+    /** What a player said while the villager was still answering, heard once the villager is free. */
+    private static final Map<String, String> QUEUED = new HashMap<>();
+
+    private static void queue(MinecraftServer server, UUID villager, UUID player, String message, long now) {
+        QUEUED.merge(villager + "/" + player, message, (a, b) -> AiText.clean(a + " " + b, MAX_PLAYER_MESSAGE));
+        // If the villager is merely in its short cooldown, nothing will finish to wake the queue: wake it.
+        if (!SESSIONS.inFlight(villager, player)) {
+            drainQueued(server, villager, player, now);
+        }
+    }
+
+    /** After a turn ends: the next queued line from this player, once the cooldown has passed. */
+    private static void drainQueued(MinecraftServer server, UUID villager, UUID player, long now) {
+        String key = villager + "/" + player;
+        if (!QUEUED.containsKey(key)) {
+            return;
+        }
+        AiTasks.schedule(now + McaConversationsConfig.aiTurnCooldownTicks() + 1, () -> {
+            if (SESSIONS.inFlight(villager, player)) {
+                return; // another turn started meanwhile; its end drains the queue
+            }
+            String message = QUEUED.remove(key);
+            ServerPlayer live = server.getPlayerList().getPlayer(player);
+            Entity speaker = live == null ? null : live.serverLevel().getEntity(villager);
+            if (message != null && speaker != null && speaker.isAlive() && live.distanceTo(speaker) <= MAX_REPLY_DISTANCE) {
+                converse(live, speaker, message);
+            }
+        });
+    }
+
     /** When each villager last really received something from each player (gift, loan, bag). */
     private static final Map<String, Long> RECEIVED = new HashMap<>();
     static final long RECEIVED_WINDOW = 1_200;
@@ -744,6 +782,7 @@ public final class AiConversations {
         LAST_FAILURE_NOTICE.clear();
         AiTasks.clear();
         PARTNERS.clear();
+        QUEUED.clear();
         AiInitiative.reset();
         AiWork.reset();
         AiErrands.reset();

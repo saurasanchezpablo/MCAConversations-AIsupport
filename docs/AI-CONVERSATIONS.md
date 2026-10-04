@@ -624,6 +624,29 @@ The game applies the consequences. The model only voices the reaction: an opener
 exactly what happened and how the villager feels, so the words match the consequences. Tools lent
 through the lend window are recorded as loans too, and the prompt lists what the villager holds on loan.
 
+### Why orders seemed to do nothing, and what changed
+In-game GameTests on real MCA villagers turned up these causes:
+- **Messages sent while the villager was still answering were dropped.** A right-click makes the
+  villager greet you first (one AI request). An order typed before that answer arrived was refused
+  with a grey "still answering" notice and lost. Messages are now **queued** and heard as soon as the
+  villager is free.
+- **Mining needed exposed stone within 10 blocks.** In an ordinary village, stone lies under dirt and
+  grass, so the villager stood still. Now, with no exposed stone in sight, the villager **digs a
+  1-wide staircase down** (natural ground only: never buildings; it stops at water, lava, caves or
+  depth). It mines the stone of the staircase itself, never its steps or walls, so it can always climb
+  back out. It then comes back and hands the stone over. If nothing can be mined, it says so and comes
+  back.
+- **Tasks need a tool.** MCA villagers rarely carry axes, hoes or fishing rods. Without one, the
+  villager now says so and the lend window opens (since 2.0.0-ai.1).
+
+The GameTests (`./gradlew runGameTestServer`) cover the full cycles:
+- chop, then hand over the logs;
+- dig down through grass and dirt, mine, then hand over;
+- pick up items from the ground and bring them;
+- right-click, then order, then chop;
+- no axe, then a truthful line and the lend window;
+- refusals, gifts and the haul.
+
 ### In-game proof (`AiGameTests`, `gradlew runGameTestServer`)
 The tests run on the GameTest server against a real MCA villager and a mock player. Only the endpoint
 is faked: it returns fixed replies. The tests check that:

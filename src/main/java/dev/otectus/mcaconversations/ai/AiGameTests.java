@@ -54,6 +54,8 @@ public final class AiGameTests {
         String content;
         if (body.contains("You were about to say")) {
             content = "{\"message\": \"I would love to, but I have no axe. Will you lend me yours?\"}";
+        } else if (body.contains("gt-mine") || body.contains("gt-pickup") || body.contains("gt-click")) {
+            content = reply("Of course, I'm on it.", "positive", "");
         } else if (body.contains("gt-work-fallback")) {
             content = reply("Of course! Right away.", "positive", "");
         } else if (body.contains("gt-work-noaxe")) {
@@ -77,6 +79,7 @@ public final class AiGameTests {
     private static void setUp() {
         McaConversationsConfig.COMMON.aiEnabled.set(true);
         McaConversationsConfig.COMMON.aiAutoConversations.set(false);
+        McaConversationsConfig.COMMON.debugAi.set(true);
         AiConversations.setTransport(FAKE);
     }
 
@@ -196,11 +199,12 @@ public final class AiGameTests {
                     }
                 }
             }
-            int gathered = count(inventory, Items.OAK_LOG) + count(player.getInventory(), Items.OAK_LOG);
+            int handed = count(player.getInventory(), Items.OAK_LOG);
             h.assertTrue(standing < 16, "no tree has been cut yet (chore "
                     + McaCompat.getCurrentChore(villager).orElse("none") + ")");
-            h.assertTrue(gathered >= 1, "a tree was cut but no logs were gathered");
-            McaConversations.LOGGER.info("[gametest] villager chopped {} logs in {} ticks", gathered,
+            h.assertTrue(handed >= 3, "player was handed " + handed + " of 3 logs (job "
+                    + AiWork.progressText(villager).orElse("none") + ")");
+            McaConversations.LOGGER.info("[gametest] villager chopped and handed over {} logs in {} ticks", handed,
                     h.getLevel().getGameTime() - start);
         });
     }
@@ -265,5 +269,86 @@ public final class AiGameTests {
         ServerPlayer player = player(h);
         AiConversations.converse(player, villager, "toma, te doy esto gt-gift");
         h.succeedWhen(() -> h.assertTrue(player.containerMenu instanceof AiGiftMenu, "no gift window"));
+    }
+
+    // --- real-world conditions --------------------------------------------------------------------------
+
+    /** Ordinary ground: stone lies under dirt and grass, nothing is exposed. The villager still mines. */
+    @GameTest(template = TEMPLATE, timeoutTicks = 4800)
+    public static void miningWhenStoneIsBuried(GameTestHelper h) {
+        setUp();
+        for (int x = 0; x < 24; x++) {
+            for (int z = 0; z < 24; z++) {
+                for (int y = 0; y <= 3; y++) {
+                    h.setBlock(new BlockPos(x, y, z), y == 1 && (x + z) % 7 == 0 ? Blocks.COAL_ORE : Blocks.STONE);
+                }
+                h.setBlock(new BlockPos(x, 4, z), Blocks.DIRT);
+                h.setBlock(new BlockPos(x, 5, z), Blocks.DIRT);
+                h.setBlock(new BlockPos(x, 6, z), Blocks.GRASS_BLOCK);
+            }
+        }
+        @SuppressWarnings("unchecked")
+        EntityType<Entity> type = (EntityType<Entity>) BuiltInRegistries.ENTITY_TYPE.get(
+                ResourceLocation.fromNamespaceAndPath("mca", "male_villager"));
+        Entity villager = h.spawn(type, new BlockPos(10, 7, 10));
+        if (villager instanceof AgeableMob ageable) {
+            ageable.setAge(0);
+        }
+        Container inventory = McaHandles.inventory(villager);
+        for (int i = 0; i < inventory.getContainerSize(); i++) {
+            inventory.setItem(i, ItemStack.EMPTY);
+        }
+        inventory.setItem(0, new ItemStack(Items.IRON_PICKAXE));
+        ServerPlayer player = player(h);
+        BlockPos at = h.absolutePos(new BlockPos(12, 7, 10));
+        player.moveTo(at.getX() + .5, at.getY(), at.getZ() + .5);
+        long start = h.getLevel().getGameTime();
+        AiConversations.converse(player, villager, "pica 3 de piedra gt-mine");
+        h.succeedWhen(() -> {
+            int handed = count(player.getInventory(), Items.COBBLESTONE) + count(player.getInventory(), Items.COAL);
+            h.assertTrue(handed >= 3, "player was handed " + handed + " of 3 (job "
+                    + AiWork.progressText(villager).orElse("none") + ")");
+            McaConversations.LOGGER.info("[gametest] dug down, mined and handed over {} stone/ore in {} ticks", handed,
+                    h.getLevel().getGameTime() - start);
+        });
+    }
+
+    /** Things lying on the ground: asked to pick them up, the villager gathers them and brings them over. */
+    @GameTest(template = TEMPLATE, timeoutTicks = 1200)
+    public static void pickingUpWhatLiesAround(GameTestHelper h) {
+        Entity villager = villager(h, false);
+        for (int i = 0; i < 3; i++) {
+            BlockPos p = h.absolutePos(new BlockPos(4 + i * 2, 1, 4));
+            net.minecraft.world.entity.item.ItemEntity item = new net.minecraft.world.entity.item.ItemEntity(h.getLevel(),
+                    p.getX() + .5, p.getY() + .2, p.getZ() + .5, new ItemStack(Items.APPLE, 2));
+            item.setPickUpDelay(32767);
+            h.getLevel().addFreshEntity(item);
+        }
+        ServerPlayer player = player(h);
+        AiConversations.converse(player, villager, "recoge las cosas del suelo gt-pickup");
+        h.succeedWhen(() -> h.assertTrue(count(player.getInventory(), Items.APPLE) >= 6,
+                "player has " + count(player.getInventory(), Items.APPLE) + " apples"));
+    }
+
+    /** The real way in: right-click the villager (talk on click), then type the order. */
+    @GameTest(template = TEMPLATE, timeoutTicks = 3600)
+    public static void clickThenAskReallyChops(GameTestHelper h) {
+        Entity villager = villager(h, true);
+        ServerPlayer player = player(h);
+        McaConversationsConfig.COMMON.aiTalkOnClick.set(true);
+        AiConversations.onClicked(player, villager);
+        h.runAfterDelay(10, () -> AiConversations.converse(player, villager, "tala madera gt-click"));
+        h.succeedWhen(() -> {
+            int standing = 0;
+            for (int[] t : new int[][]{{16, 6}, {18, 12}, {14, 17}, {19, 4}}) {
+                for (int y = 1; y <= 4; y++) {
+                    if (h.getBlockState(new BlockPos(t[0], y, t[1])).is(Blocks.OAK_LOG)) {
+                        standing++;
+                    }
+                }
+            }
+            h.assertTrue(standing < 16, "no tree cut after talk-on-click (chore "
+                    + McaCompat.getCurrentChore(villager).orElse("none") + ")");
+        });
     }
 }
