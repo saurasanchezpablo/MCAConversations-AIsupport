@@ -44,6 +44,7 @@ public final class VillagerBubbles {
         return switch (kind) {
             case VillagerBubblesS2C.URGENT -> "!";
             case VillagerBubblesS2C.EVENT -> "♪";
+            case VillagerBubblesS2C.DATE -> "❤";
             default -> "…";
         };
     }
@@ -52,6 +53,7 @@ public final class VillagerBubbles {
         return switch (kind) {
             case VillagerBubblesS2C.URGENT -> 0xFFFFC23A;
             case VillagerBubblesS2C.EVENT -> 0xFF7FE0FF;
+            case VillagerBubblesS2C.DATE -> 0xFFFF6FAE;
             default -> 0xFFFFFFFF;
         };
     }

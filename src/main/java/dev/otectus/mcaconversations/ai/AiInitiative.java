@@ -55,7 +55,14 @@ final class AiInitiative {
     /** What the villager knows about this player that could be worth walking over for. Pure input. */
     record Facts(String playerName, RelationshipBand band, boolean romantic, int turns, long daysSinceTalk,
                  Optional<String> promiseDue, Optional<String> promiseKept, Optional<String> loss,
-                 Optional<String> heardAbout, Optional<String> wish, Optional<String> event) {
+                 Optional<String> heardAbout, Optional<String> wish, Optional<String> event, List<Reason> extra) {
+
+        Facts(String playerName, RelationshipBand band, boolean romantic, int turns, long daysSinceTalk,
+              Optional<String> promiseDue, Optional<String> promiseKept, Optional<String> loss,
+              Optional<String> heardAbout, Optional<String> wish, Optional<String> event) {
+            this(playerName, band, romantic, turns, daysSinceTalk, promiseDue, promiseKept, loss, heardAbout, wish, event,
+                    List.of());
+        }
 
         Facts(String playerName, RelationshipBand band, boolean romantic, int turns, long daysSinceTalk,
               Optional<String> promiseDue, Optional<String> promiseKept, Optional<String> loss,
@@ -82,6 +89,7 @@ final class AiInitiative {
             f.loss().ifPresent(s -> reasons.add(new Reason(4, "you are grieving " + s + " and want someone to talk to")));
         }
         f.event().ifPresent(s -> reasons.add(new Reason(4, s, VillagerBubblesS2C.EVENT)));
+        reasons.addAll(f.extra());
         f.heardAbout().ifPresent(s -> reasons.add(new Reason(3, "you heard that " + s)));
         if (f.romantic()) {
             reasons.add(new Reason(3, "you are happy to see the one you love", NO_BUBBLE));
@@ -199,9 +207,22 @@ final class AiInitiative {
         long daysSince = pair.lastTalkDay() < 0 ? 0 : day - pair.lastTalkDay();
         Optional<String> event = AiVillageEvents.invitation(server, villager, player.getName().getString(), player.getUUID(),
                 organiserOnly).map(AiVillageEvents.Invite::text);
-        return new Facts(player.getName().getString(), band, romantic, pair.turns(), daysSince, due, kept, loss,
+        List<Reason> extra = new ArrayList<>();
+        String playerName = player.getName().getString();
+        if (AiDates.pending(server, villager.getUUID(), player.getUUID())) {
+            extra.add(new Reason(4, "you have a date with " + playerName + " and are looking forward to it",
+                    VillagerBubblesS2C.DATE));
+        }
+        if (band.isAtLeast(RelationshipBand.ACQUAINTANCE)) {
+            AiNeeds.askReason(player.serverLevel(), villager, pair, playerName)
+                    .ifPresent(s -> extra.add(new Reason(3, s, VillagerBubblesS2C.NEWS)));
+        }
+        if (band.isAtLeast(RelationshipBand.FRIEND)) {
+            AiThreats.askReason(server, villager, playerName).ifPresent(s -> extra.add(new Reason(3, s, VillagerBubblesS2C.URGENT)));
+        }
+        return new Facts(playerName, band, romantic, pair.turns(), daysSince, due, kept, loss,
                 heardAbout(server, villager, player, now), pair.wish(day).map(w -> AiContextFormat.words(w.item().replace("#", ""))),
-                event);
+                event, extra);
     }
 
     private static Optional<String> heardAbout(MinecraftServer server, Entity villager, ServerPlayer player, long now) {

@@ -82,6 +82,10 @@ public final class AiMemorySavedData extends SavedData {
         setDirty();
     }
 
+    public java.util.Map<UUID, AiPairMemory> pairsOf(UUID player) {
+        return store.pairsOf(player);
+    }
+
     public List<AiBereavement> bereavements(UUID villager, long today) {
         return store.bereavements(villager, today);
     }

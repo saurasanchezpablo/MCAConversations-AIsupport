@@ -48,6 +48,17 @@ public final class AiMemoryStore {
         this.maxPairs = Math.max(1, maxPairs);
     }
 
+    /** Every villager this player has talked with, by villager. */
+    public Map<UUID, AiPairMemory> pairsOf(UUID player) {
+        Map<UUID, AiPairMemory> out = new LinkedHashMap<>();
+        pairs.forEach((key, pair) -> {
+            if (key.player().equals(player)) {
+                out.put(key.villager(), pair);
+            }
+        });
+        return out;
+    }
+
     public Optional<AiPairMemory> get(UUID villager, UUID player) {
         return Optional.ofNullable(pairs.get(new PairKey(villager, player)));
     }

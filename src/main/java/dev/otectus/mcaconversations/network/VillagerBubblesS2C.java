@@ -25,6 +25,8 @@ public record VillagerBubblesS2C(Map<UUID, Byte> bubbles) implements CustomPacke
     public static final byte URGENT = 1;
     /** An invitation to a village event. Drawn as "♪". */
     public static final byte EVENT = 2;
+    /** A date is planned or waiting. Drawn as a heart. */
+    public static final byte DATE = 3;
     /** Most bubbles one message carries. */
     public static final int MAX = 32;
 

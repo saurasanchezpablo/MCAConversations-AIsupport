@@ -37,7 +37,7 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
                             Optional<AiEffect.Opinion> opinion, Optional<String> directions,
                             int tradeMood, boolean grudge, boolean forgive,
                             Optional<AiInterjection> interjection, Optional<GossipTone> gossip,
-                            List<AiEffect.Action> actions, Optional<String> reconcile) {
+                            List<AiEffect.Action> actions, Optional<String> reconcile, List<AiEffect> life) {
 
     public static final String DECISION_PREFIX = "ai.chat.";
     /** Disposition step for one nudge; a strong judgement moves the axis a little further. */
@@ -54,7 +54,7 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
     static final Set<AiActionKind> ACTIONS_DESPITE_GRUDGE = EnumSet.of(AiActionKind.MOVE, AiActionKind.GO_HOME,
             AiActionKind.STOP_WORK, AiActionKind.GIFT);
     /** Actions other villagers can be brought in on. */
-    static final Set<AiActionKind> GROUP_ACTIONS = EnumSet.of(AiActionKind.WORK, AiActionKind.PICK_UP,
+    static final Set<AiActionKind> GROUP_ACTIONS = EnumSet.of(AiActionKind.WORK, AiActionKind.BUILD, AiActionKind.PICK_UP,
             AiActionKind.BREED, AiActionKind.FOLLOW, AiActionKind.STAY, AiActionKind.MOVE, AiActionKind.GO_HOME);
 
     /** Most actions one reply may carry (e.g. "here's an axe" and "go chop"). */
@@ -73,7 +73,7 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
         if (!reply.structured()) {
             return new AiOutcomePlan(decision, 0, Optional.empty(), Optional.empty(), Map.of(), Optional.empty(), "",
                     Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                    Optional.empty(), 0, false, false, Optional.empty(), Optional.empty(), List.of(), Optional.empty());
+                    Optional.empty(), 0, false, false, Optional.empty(), Optional.empty(), List.of(), Optional.empty(), List.of());
         }
         boolean confident = reply.confidence() >= policy.minConfidence();
         boolean gameplay = policy.gameplayEffects() && confident;
@@ -84,6 +84,10 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
         if (hearts < 0 && facts.grieving()) {
             // Cruelty to someone in mourning cuts deeper: half as much again, rounded away from zero.
             hearts = -(int) Math.ceil(-hearts * 1.5);
+        }
+        if (facts.life().onDate()) {
+            // On a date everything counts for more, both ways.
+            hearts = hearts > 0 ? (int) Math.ceil(hearts * 1.5) : -(int) Math.ceil(-hearts * 1.5);
         }
 
         // --- grudge and forgiveness -------------------------------------------------------------------
@@ -137,6 +141,7 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
         Optional<String> directions = Optional.empty();
         boolean discount = false;
         Optional<String> reconcile = Optional.empty();
+        List<AiEffect> life = new java.util.ArrayList<>();
         if (gameplay) {
             for (AiEffect effect : reply.effects()) {
                 if (effect instanceof AiEffect.Promise p && promise.isEmpty()
@@ -161,6 +166,19 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
                         && !holdsGrudge && AiTurnFacts.contains(facts.feuds(), r.with())) {
                     // Only a feud the villager was shown, and only when the player was not unkind about it.
                     reconcile = Optional.of(r.with());
+                } else if (effect instanceof AiEffect.Vote v && noneOf(life, AiEffect.Vote.class) && !sentiment.negative()
+                        && !holdsGrudge && AiTurnFacts.contains(facts.life().candidates(), v.candidate())) {
+                    life.add(v);
+                } else if (effect instanceof AiEffect.Teach t && noneOf(life, AiEffect.Teach.class) && sentiment.positive()
+                        && !holdsGrudge && facts.atLeast(RelationshipBand.ACQUAINTANCE)) {
+                    life.add(t);
+                } else if (effect instanceof AiEffect.TeachRecipe r && noneOf(life, AiEffect.TeachRecipe.class)
+                        && !sentiment.negative() && !holdsGrudge && facts.life().recipes().contains(r.item())) {
+                    life.add(r);
+                } else if (effect instanceof AiEffect.SecretTold s && noneOf(life, AiEffect.SecretTold.class)
+                        && AiTurnFacts.contains(facts.neighbours(), s.about())) {
+                    // Whether it really was a secret is checked against what the neighbour confided.
+                    life.add(s);
                 } else if (effect instanceof AiEffect.Discount && sentiment.positive() && !holdsGrudge
                         && facts.atLeast(RelationshipBand.FRIEND)) {
                     discount = true;
@@ -217,6 +235,10 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
 
         return new AiOutcomePlan(decision, hearts, state, reaction, Collections.unmodifiableMap(dispositions), memory,
                 command, promise, wish, quest, unlock, opinion, directions, tradeMood, grudge, forgive, interjection,
-                gossip, List.copyOf(actions), reconcile);
+                gossip, List.copyOf(actions), reconcile, List.copyOf(life));
+    }
+
+    private static boolean noneOf(List<AiEffect> effects, Class<? extends AiEffect> type) {
+        return effects.stream().noneMatch(type::isInstance);
     }
 }

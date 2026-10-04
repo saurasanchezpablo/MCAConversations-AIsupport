@@ -14,31 +14,36 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
- * The "what should I cook?" window: one row of slots above the player's inventory, where they put
- * what to cook or smelt and, if they like, the fuel. When it closes the villager takes it all to the
- * nearest furnace, smoker or blast furnace ({@link AiErrands#startCook}); if it cannot, everything goes
- * straight back to the player. A vanilla one-row chest screen, so the client needs nothing new.
+ * A window for handing things over for a job: one or more rows of slots above the player's
+ * inventory. Used for "what should I cook?" and "what do I build it with?". When it closes, whatever
+ * was put in goes to the job; if the job cannot start, it all goes straight back to the player. A
+ * vanilla chest screen, so the client needs nothing new.
  */
-final class AiCookMenu extends ChestMenu {
-
-    static final int SLOTS = 9;
+final class AiHandoverMenu extends ChestMenu {
 
     private final Entity villager;
     private final SimpleContainer items;
+    /** Takes the handed stacks; false when the job could not start (the stacks are then returned). */
+    private final Predicate<List<ItemStack>> onClose;
     private boolean settled;
 
-    private AiCookMenu(int id, Inventory inventory, SimpleContainer items, Entity villager) {
-        super(MenuType.GENERIC_9x1, id, inventory, items, 1);
+    private AiHandoverMenu(int id, Inventory inventory, SimpleContainer items, int rows, Entity villager,
+                           Predicate<List<ItemStack>> onClose) {
+        super(rows == 1 ? MenuType.GENERIC_9x1 : rows == 2 ? MenuType.GENERIC_9x2 : MenuType.GENERIC_9x3, id, inventory,
+                items, rows);
         this.villager = villager;
         this.items = items;
+        this.onClose = onClose;
     }
 
-    static void open(ServerPlayer player, Entity villager) {
+    static void open(ServerPlayer player, Entity villager, String titleKey, int rows, Predicate<List<ItemStack>> onClose) {
         String name = McaCompat.getVillagerName(villager).orElse(villager.getName().getString());
-        player.openMenu(new SimpleMenuProvider((id, inventory, p) -> new AiCookMenu(id, inventory,
-                new SimpleContainer(SLOTS), villager), Component.translatable("mcaconversations.ai.cook_title", name)));
+        int r = Math.max(1, Math.min(3, rows));
+        player.openMenu(new SimpleMenuProvider((id, inventory, p) -> new AiHandoverMenu(id, inventory,
+                new SimpleContainer(9 * r), r, villager, onClose), Component.translatable(titleKey, name)));
     }
 
     @Override
@@ -63,10 +68,13 @@ final class AiCookMenu extends ChestMenu {
         if (handed.isEmpty()) {
             return;
         }
-        String name = McaCompat.getVillagerName(villager).orElse(villager.getName().getString());
-        long now = serverPlayer.serverLevel().getGameTime();
-        if (!villager.isAlive() || !AiErrands.startCook(villager, serverPlayer, handed, name, now)) {
-            handed.forEach(stack -> serverPlayer.getInventory().placeItemBackInInventory(stack));
+        boolean started = false;
+        try {
+            started = villager.isAlive() && onClose.test(handed);
+        } finally {
+            if (!started) {
+                handed.forEach(stack -> serverPlayer.getInventory().placeItemBackInInventory(stack));
+            }
         }
     }
 }

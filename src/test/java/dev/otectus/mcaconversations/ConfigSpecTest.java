@@ -88,7 +88,9 @@ class ConfigSpecTest {
             Map.entry("ai.autoConversationRadius", 10),
             Map.entry("ai.bubbles", true),
             Map.entry("ai.villageEvents", true),
-            Map.entry("ai.villageEventChance", 0.35));
+            Map.entry("ai.villageEventChance", 0.35),
+            Map.entry("ai.villagerChatter", true),
+            Map.entry("ai.villagerChatterCooldownTicks", 4800));
 
     @Test
     void allThreeSpecsBuild() {

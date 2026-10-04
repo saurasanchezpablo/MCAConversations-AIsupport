@@ -27,12 +27,29 @@ import java.util.Set;
  * @param offeredChores    task keys the villager could be sent to do
  * @param helpers          lower-case names of nearby villagers willing to pitch in
  * @param feuds            lower-case names of neighbours this villager has fallen out with
+ * @param life             elections, recipes the villager could teach, a date under way
  */
 public record AiTurnFacts(RelationshipBand band, int hearts, boolean romanceAllowed, boolean grieving, boolean grudge,
                           Set<String> offeredQuests, Set<String> offeredTopics, Set<String> offeredPlaces,
                           Set<String> neighbours, Set<String> bystanders, int openPromises, boolean wishActive,
                           Set<String> offeredActions, Set<String> offeredChores, Set<String> helpers,
-                          Set<String> feuds) {
+                          Set<String> feuds, Life life) {
+
+    /**
+     * The rest of the villager's life this turn.
+     *
+     * @param candidates lower-case names of the candidates in the village election
+     * @param recipes    item ids of recipes the villager could teach the player
+     * @param onDate     the player and the villager are on a date right now
+     */
+    public record Life(Set<String> candidates, Set<String> recipes, boolean onDate) {
+        public static final Life NONE = new Life(Set.of(), Set.of(), false);
+
+        public Life {
+            candidates = lower(candidates);
+            recipes = recipes == null ? Set.of() : Set.copyOf(recipes);
+        }
+    }
 
     /** MCA's bouquet threshold: below it, no courtship can start. */
     public static final int ROMANCE_MIN_HEARTS = 10;
@@ -50,6 +67,16 @@ public record AiTurnFacts(RelationshipBand band, int hearts, boolean romanceAllo
         offeredChores = offeredChores == null ? Set.of() : Set.copyOf(offeredChores);
         helpers = lower(helpers);
         feuds = lower(feuds);
+        life = life == null ? Life.NONE : life;
+    }
+
+    /** Without the rest of life. */
+    public AiTurnFacts(RelationshipBand band, int hearts, boolean romanceAllowed, boolean grieving, boolean grudge,
+                       Set<String> offeredQuests, Set<String> offeredTopics, Set<String> offeredPlaces,
+                       Set<String> neighbours, Set<String> bystanders, int openPromises, boolean wishActive,
+                       Set<String> offeredActions, Set<String> offeredChores, Set<String> helpers, Set<String> feuds) {
+        this(band, hearts, romanceAllowed, grieving, grudge, offeredQuests, offeredTopics, offeredPlaces, neighbours,
+                bystanders, openPromises, wishActive, offeredActions, offeredChores, helpers, feuds, Life.NONE);
     }
 
     /** Without feuds. */
@@ -58,7 +85,7 @@ public record AiTurnFacts(RelationshipBand band, int hearts, boolean romanceAllo
                        Set<String> neighbours, Set<String> bystanders, int openPromises, boolean wishActive,
                        Set<String> offeredActions, Set<String> offeredChores, Set<String> helpers) {
         this(band, hearts, romanceAllowed, grieving, grudge, offeredQuests, offeredTopics, offeredPlaces, neighbours,
-                bystanders, openPromises, wishActive, offeredActions, offeredChores, helpers, Set.of());
+                bystanders, openPromises, wishActive, offeredActions, offeredChores, helpers, Set.of(), Life.NONE);
     }
 
     /** Without helpers. */

@@ -8,9 +8,15 @@ import java.util.Optional;
  * One thing a villager remembers about one player from an AI conversation: a single short sentence
  * from the villager's point of view, never a transcript.
  *
- * @param day the Minecraft day it was formed or last reinforced
+ * @param day    the Minecraft day it was formed or last reinforced
+ * @param secret told in confidence: the villager keeps it to themselves, and a player who repeats it
+ *               to someone else has betrayed them
  */
-public record AiMemory(String text, AiImportance importance, AiSentiment sentiment, long day) {
+public record AiMemory(String text, AiImportance importance, AiSentiment sentiment, long day, boolean secret) {
+
+    public AiMemory(String text, AiImportance importance, AiSentiment sentiment, long day) {
+        this(text, importance, sentiment, day, false);
+    }
 
     public boolean expired(long today) {
         int retention = importance.retentionDays();
@@ -23,6 +29,9 @@ public record AiMemory(String text, AiImportance importance, AiSentiment sentime
         tag.putString("i", importance.key());
         tag.putString("s", sentiment.key());
         tag.putLong("d", day);
+        if (secret) {
+            tag.putBoolean("x", true);
+        }
         return tag;
     }
 
@@ -34,6 +43,6 @@ public record AiMemory(String text, AiImportance importance, AiSentiment sentime
             return Optional.empty();
         }
         return Optional.of(new AiMemory(text, importance.get(),
-                AiSentiment.byKey(tag.getString("s")).orElse(AiSentiment.NEUTRAL), tag.getLong("d")));
+                AiSentiment.byKey(tag.getString("s")).orElse(AiSentiment.NEUTRAL), tag.getLong("d"), tag.getBoolean("x")));
     }
 }

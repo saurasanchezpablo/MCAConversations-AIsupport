@@ -36,7 +36,11 @@ public enum AiActionKind {
     /** Feed nearby animals with food the villager carries so they breed. */
     BREED,
     /** Cook or smelt what the player hands over at a nearby furnace, smoker or blast furnace, and bring it back. */
-    COOK;
+    COOK,
+    /** Meet the player for a date, at a place in the village or right here, now or in the evening. */
+    DATE,
+    /** Build something simple with the materials the player hands over (a hut, a pen, a campfire...). */
+    BUILD;
 
     public String key() {
         return name().toLowerCase(Locale.ROOT);

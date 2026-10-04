@@ -348,6 +348,9 @@ final class AiWork {
         // Returning: hand the goods over once close enough, or give up after a while.
         if (villager.distanceTo(player) <= 3.5) {
             int handed = handOver(villager, player, job, got);
+            if (player.getServer() != null) {
+                AiSkills.practice(player.getServer(), villager, job.chore, handed); // practice makes them better at it
+            }
             McaHandles.runInteraction(villager, player, "MOVE");
             AiLines.say(villager, player, AiLines.variant("work_done", handed,
                     Component.translatable("mcaconversations.ai.yield." + job.chore.key())), name, AiEmotion.PROUD,
@@ -448,8 +451,10 @@ final class AiWork {
                 return;
             }
             BlockState state = level.getBlockState(job.target);
-            job.digNeeded = Math.max(10, (int) Math.ceil(state.getDestroySpeed(level, job.target) * 30f
-                    / Math.max(1f, tool.getDestroySpeed(state))));
+            // A practised miner digs faster.
+            double skill = AiSkills.speed(AiSkills.level(level.getServer(), entity.getUUID(), AiChore.MINE));
+            job.digNeeded = Math.max(6, (int) Math.ceil(state.getDestroySpeed(level, job.target) * 30f
+                    / Math.max(1f, tool.getDestroySpeed(state)) * skill));
         }
         BlockPos target = job.target;
         double distance = villager.distanceToSqr(target.getX() + 0.5, target.getY() + 0.5, target.getZ() + 0.5);

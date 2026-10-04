@@ -164,7 +164,21 @@ final class AiSocial {
         sections.add(new AiContextSection("Your views of neighbours", views));
 
         // --- village life: festivals, markets, funerals, weddings, quarrels -----------------------------------
-        sections.add(new AiContextSection("Village life", AiVillageEvents.promptLines(server, villager, player)));
+        List<String> villageLife = new ArrayList<>(AiVillageEvents.promptLines(server, villager, player));
+        villageLife.addAll(AiPolitics.promptLines(server, villager, player));
+        villageLife.addAll(AiThreats.promptLines(server, villager, player));
+        sections.add(new AiContextSection("Village life", villageLife));
+
+        // --- their own life lately: needs, skills, childhood, a date, secrets ----------------------------------
+        List<String> ownLife = new ArrayList<>();
+        ownLife.addAll(AiNeeds.promptLines(level, villager, pair, playerName));
+        ownLife.addAll(AiSkills.promptLines(server, villager, playerName));
+        ownLife.addAll(AiChildhood.promptLines(server, villager, player));
+        ownLife.addAll(AiDates.promptLines(server, villagerId, player));
+        ownLife.addAll(AiSecrets.promptLines(pair, playerName, band.isAtLeast(RelationshipBand.FRIEND) || roles.any()));
+        sections.add(new AiContextSection("Your life lately", ownLife));
+        sections.add(new AiContextSection("What you can see of " + playerName,
+                AiAppearance.lines(AiAppearance.of(player), playerName)));
 
         // --- what the village says about the player ---------------------------------------------------------
         sections.add(new AiContextSection("What the village says about " + playerName,
@@ -201,13 +215,18 @@ final class AiSocial {
             }
         }
         Map<String, Place> places = places(level, villager, band, pair, day);
+        boolean canDate = romanceAllowed && hearts >= AiTurnFacts.ROMANCE_MIN_HEARTS
+                && !AiDates.pending(server, villagerId, player.getUUID());
         AiActionContext.Snapshot actions = AiActionContext.capture(level, villager, player, villagerName, playerName, band,
-                roles, grudge, places);
+                roles, grudge, places, canDate);
+        AiTurnFacts.Life life = new AiTurnFacts.Life(Set.copyOf(AiPolitics.candidates(server, villager)),
+                band.isAtLeast(RelationshipBand.ACQUAINTANCE) && !grudge ? AiSkills.teachable(villager, player) : Set.of(),
+                AiDates.onDate(server, villagerId, player.getUUID()));
         sections.addAll(actions.sections());
 
         AiTurnFacts facts = new AiTurnFacts(band, hearts, romanceAllowed, !losses.isEmpty(), grudge, quests, topics,
                 places.keySet(), neighbourIds.keySet(), bystanderIds.keySet(), (int) pair.openPromises(),
-                wish.isPresent(), actions.actions(), actions.chores(), actions.helpers().keySet(), Set.copyOf(feuds));
+                wish.isPresent(), actions.actions(), actions.chores(), actions.helpers().keySet(), Set.copyOf(feuds), life);
         return new Turn(facts, sections, neighbourIds, bystanderIds, places, actions.offers(), actions.helpers());
     }
 
@@ -226,6 +245,23 @@ final class AiSocial {
                     .map(p -> "\"" + p.token() + "\" (" + p.label() + ")").toList();
             out.add("{\"type\": \"directions\", \"place\": one of " + String.join(", ", labels)
                     + "} when asked the way; the game adds the exact directions after your line");
+        }
+        AiTurnFacts.Life life = turn.facts().life();
+        if (!life.candidates().isEmpty()) {
+            out.add("{\"type\": \"vote\", \"for\": one of " + quoted(life.candidates())
+                    + "} (a candidate's name) when the player gives you a reason you accept to vote for that candidate");
+        }
+        if (!life.recipes().isEmpty()) {
+            out.add("{\"type\": \"teach_recipe\", \"item\": one of " + quoted(life.recipes()) + "} when the player "
+                    + "asks how to make it, or you want to share something of your craft; the game teaches them the recipe");
+        }
+        if (turn.facts().atLeast(RelationshipBand.ACQUAINTANCE)) {
+            out.add("{\"type\": \"teach\", \"task\": \"chop|harvest|hunt|fish|mine\"} when the player genuinely shows "
+                    + "or explains how to do that work better, and you take it in");
+        }
+        if (!turn.neighbourIds().isEmpty()) {
+            out.add("{\"type\": \"secret_told\", \"about\": a neighbour's exact name, \"summary\": \"what you heard\"} "
+                    + "when the player repeats to you something that neighbour told them in confidence");
         }
         if (!turn.facts().feuds().isEmpty()) {
             out.add("{\"type\": \"reconcile\", \"with\": one of " + quoted(turn.neighbourIds().keySet().stream()

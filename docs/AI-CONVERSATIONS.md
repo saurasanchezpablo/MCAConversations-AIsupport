@@ -376,6 +376,174 @@ Attending:
 Server switches: `ai.villageEvents`, `ai.villageEventChance`. Everything is saved in
 `data/mcaconversations_village_life.dat`.
 
+## Villagers' own lives (third layer)
+
+### Villagers talking among themselves (`AiSmallTalk`)
+Two free villagers standing within 5 blocks of each other, near a player who is not in a conversation,
+sometimes have a short chat. The player overhears it in grey italics within 12 blocks.
+
+How it is written:
+- The model writes 2–4 lines from:
+  - who each villager is (job, personality, mood, age, family tie);
+  - what each feels about the other, and why;
+  - grief;
+  - what is going on in the village.
+- The player nearby may get a glance, but the two talk to each other.
+- The chat is written in the player's language.
+
+How it plays:
+- The two stop and face each other.
+- The chat may leave them a step warmer or cooler.
+
+Limits:
+- One chat per player every `ai.villagerChatterCooldownTicks` (default 4800 ticks = 4 min).
+- One chat per pair per day.
+- Switch: `ai.villagerChatter`.
+
+**Time heals:** once a day per village, a grievance at least 5 days old has a 30% chance to ease by one
+step.
+
+### Real needs (`AiNeeds`)
+Each need is read from the game, not invented:
+- food when the villager is below 60% health;
+- the tool or supplies of their trade when they have none (a farmer's hoe, a smith's coal, a
+  librarian's paper...);
+- firewood in cold biomes;
+- a bed when they are homeless.
+
+The villager may bring the need up, or come over to ask (initiative reason, weight 3, `…` bubble).
+If the player agrees, the need becomes an ordinary promise, kept when the item is handed over.
+
+### Threats to the village (`AiThreats`, `AiWorldEvents`)
+- **Monsters killed by a player in a village:** each kill counts, and villagers with line of sight
+  remember it (once per 5 minutes each).
+- **Villagers hurt or killed by monsters:** the village stays frightened for 3 days. After a death, or
+  3 attacks in a day, a MEETING event is held the next morning.
+- **Raids and heroes:**
+  - A raid in progress is known to every villager.
+  - A Hero of the Village gets +2 hearts and a memory from each villager they talk to, once a day.
+- **Guards** take attacks personally.
+- **Asking for help:** a friend may come over to ask the player to help keep the village safe.
+
+### Village politics (`AiPolitics`)
+Every village with 5 or more residents holds an election every 8 days, after 2 days of campaigning.
+The ELECTION event is a gathering at the town centre.
+
+The candidates:
+- There are two adults; the sitting leader stands again when present.
+- Each has a platform: markets, festivals, defence, prices or harmony.
+
+The vote:
+- A villager votes for the candidate they think better of. The player can change a vote with the
+  `vote` effect.
+- The game counts the votes and announces the winner.
+- If a player backed the winner, the winner remembers it (HIGH) and gives +2 hearts.
+- If a player backed the loser, the winner remembers being opposed, and the loser gives +1 heart.
+
+The leader's platform shapes the village:
+
+| Platform | Effect |
+|---|---|
+| Markets | more planned markets |
+| Festivals | more festivals and feasts |
+| Defence | a meeting after any attack |
+| Prices | double the price bonus on market day |
+| Harmony | half of quarrels are settled before they start |
+
+The leader also organises the events the village plans.
+
+### Dates (`AiDates`, action `date`)
+Offered only where romance is allowed and MCA's courtship threshold is met.
+- **When:** now, this evening (11000 day time) or tomorrow evening.
+- **Where:** a village place, or right where they stand.
+- **Before:** a `❤` bubble. Near the time, the villager walks to the spot and waits up to 2 minutes.
+- **During:** the date starts when the player arrives and lasts up to 2.5 minutes. The villager stays
+  close, the prompt knows it is a date, and AI hearts count ×1.5 both ways.
+
+How it ends:
+
+| Outcome | When | Consequences |
+|---|---|---|
+| Lovely | warm lines outnumber cold, at least 2 turns | +2 hearts, smitten |
+| Awkward | otherwise | a medium memory |
+| Bad | cold lines outnumber warm | −2 hearts, annoyed |
+| Stood up | the player never came | −3 hearts, a high memory |
+
+### Children who remember (`AiChildhood`)
+While a villager is a child, each player's treatment adds up to a score:
+- AI turns count ±1, or ±2 when strong;
+- each gift counts +1;
+- each hit counts −3.
+
+When the census sees the child grow up, they keep a lasting memory of how the player treated them,
+with ±2 hearts. The tone is "very kind", "kind", "unkind" or "cruel". The prompt carries it from
+then on.
+
+### Secrets (`secret_told`)
+- **Confiding:** memories marked `secret` are now saved and shown as "told in confidence". A trusting
+  villager is invited to confide.
+- **Repeating it:** if the player repeats a secret to someone else, the listener's model may report
+  `secret_told`. The game checks that the neighbour really confided in this player.
+- **Finding out:** 2–7 minutes later, the owner finds out. Consequences:
+  - a high memory;
+  - a grudge;
+  - −4 hearts;
+  - annoyed;
+  - a red notice to the player.
+
+### Teaching and learning
+- **Practice:** villagers' skills grow with practice (items handed over from work).
+- **`teach` effect:** the player shows a villager how to do a task better. Worth +20 practice, once per
+  task per day.
+- **Skill levels:** there are 0–5 levels. Mining digs up to 40% faster, and the prompt says what each
+  villager is good at.
+- **`teach_recipe` effect:** a villager teaches recipes from their trade that the player does not know
+  yet. The farmer's include cake and bread, the librarian's a lectern. The player's recipe book learns
+  them.
+
+### Building together (action `build`, with helpers)
+The templates are hut, pen, campfire, field (plot), lit path and wall. A materials window opens, then
+the build is laid out in front of where the player stood, facing their way.
+
+How the work goes:
+- The villager, and any helpers, walk to each block, swing and place it with the block's sound.
+- Materials are matched by role:
+  - full blocks for walls;
+  - slabs, preferably, for the roof;
+  - fences and a gate for a pen;
+  - logs as seats;
+  - torches and seeds as extras.
+- A field needs a hoe; a water bucket gives it a pond.
+
+Rules:
+- Blocks go only into air or plants. The only blocks changed are grass, turned into a path or tilled
+  into a field.
+- With more than 40% of the plan blocked, the villager refuses.
+- Leftovers come back. The villager says when a material ran out.
+- A boss bar shows progress.
+
+### How the player looks (`AiAppearance`)
+The model is told what the villager can see:
+- armour material and enchantment glint, a pumpkin head;
+- the weapon or item in hand;
+- wounds, fire, being wet;
+- hunger, days without sleep;
+- a mount, pets;
+- bulging pockets, great experience;
+- being out at night, invisibility.
+
+It is told to remark on these only when natural, never as a list.
+
+### The diary (`/diary`, `/diario`, `/conversations diary`; `book` for a written book)
+The diary lists:
+- people known, with hearts, last talk and grudges;
+- pending promises and wishes;
+- dates;
+- upcoming events;
+- leader and election (and who you back), and monsters killed defending a village;
+- quarrels, secrets entrusted, and childhood memories;
+- what people say about you.
+
 ## Voice (acting TTS)
 
 Villagers speak their lines aloud with acting: the emotion, what the line is for, their mood, grief,

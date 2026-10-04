@@ -25,6 +25,10 @@ public enum AiVillageEventType {
     WEDDING(true, 6_000, 2_500, List.of("chapel", "church", "town_center", "inn"), 1, 2),
     BIRTH(true, 5_000, 1_500, List.of("town_center", "inn", "infirmary"), 1, 2),
     WELCOME(true, 2_500, 1_500, List.of("town_center", "inn"), 1, 2),
+    /** The village talks over an attack, the morning after. */
+    MEETING(true, 3_000, 1_500, List.of("town_center", "inn", "guard_tower", "armory"), 1, 1),
+    /** The village chooses its leader. */
+    ELECTION(true, 6_000, 1_800, List.of("town_center", "inn", "library"), 0, 0),
     QUARREL(false, 6_000, 400, List.of(), 0, 0);
 
     public static final int DAY = 24_000;

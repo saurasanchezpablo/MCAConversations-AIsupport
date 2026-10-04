@@ -54,7 +54,8 @@ final class AiActionContext {
             if ((age != AgeGroup.ADULT && age != AgeGroup.TEEN) || McaCompat.isPanicking(e)
                     || (e instanceof net.minecraft.world.entity.LivingEntity l && l.isSleeping())
                     || McaCompat.isInteractingWith(e).map(id -> !id.equals(player.getUUID())).orElse(false)
-                    || AiWork.job(e.getUUID()).map(j -> !j.player.equals(player.getUUID())).orElse(false)) {
+                    || AiWork.job(e.getUUID()).map(j -> !j.player.equals(player.getUUID())).orElse(false)
+                    || AiBuild.busy(e.getUUID()) || AiErrands.busy(e.getUUID())) {
                 continue;
             }
             RelationshipBand band;
@@ -89,7 +90,7 @@ final class AiActionContext {
 
     static Snapshot capture(net.minecraft.server.level.ServerLevel level, Entity villager, ServerPlayer player,
                             String villagerName, String playerName, RelationshipBand band, RelationshipRoles roles,
-                            boolean grudge, Map<String, AiSocial.Place> places) {
+                            boolean grudge, Map<String, AiSocial.Place> places, boolean romance) {
         AgeGroup age = McaCompat.ageGroup(villager);
         boolean adultish = age == AgeGroup.ADULT || age == AgeGroup.TEEN;
         boolean family = roles.any();
@@ -122,6 +123,12 @@ final class AiActionContext {
         }
         if (working) {
             actions.add(AiActionKind.STOP_WORK);
+        }
+        if (romance) {
+            actions.add(AiActionKind.DATE);
+        }
+        if (trusted && adultish) {
+            actions.add(AiActionKind.BUILD);
         }
         Map<String, Integer> carried = carried(inventory);
         if (band.isAtLeast(RelationshipBand.ACQUAINTANCE) && !carried.isEmpty()) {
@@ -226,10 +233,22 @@ final class AiActionContext {
                         + "} guide = walk " + playerName + " there; wait_at = go there and wait");
             }
             if (!helpers.isEmpty()) {
-                offers.add("Any work, pick_up, breed, follow, stay, move or go_home action may add \"helpers\": [names] or "
+                offers.add("Any work, build, pick_up, breed, follow, stay, move or go_home action may add \"helpers\": [names] or "
                         + "\"helpers\": \"all\" when " + playerName + " wants others to join in (\"everyone, follow me\", "
                         + "\"get Bob to help you chop\"). Only these can be brought in: "
                         + String.join(", ", helpers.keySet()) + ". A work amount is the total for the whole group.");
+            }
+            if (actions.contains(AiActionKind.DATE)) {
+                offers.add("{\"type\": \"action\", \"do\": \"date\", \"place\": \"here\"" + (villagePlaces.isEmpty() ? ""
+                        : " or one of " + villagePlaces.stream().map(p -> "\"" + p + "\"").collect(Collectors.joining(", ")))
+                        + ", \"when\": \"now|evening|tomorrow\"} when " + playerName + " asks you out (or accepts your "
+                        + "invitation) and you say yes; you will meet there and then");
+            }
+            if (actions.contains(AiActionKind.BUILD)) {
+                offers.add("{\"type\": \"action\", \"do\": \"build\", \"build\": \"hut|pen|campfire|plot|path|wall\"} "
+                        + "when " + playerName + " asks you to build one of these right where they stand (hut = small wooden "
+                        + "house, pen = fence for animals, plot = small field, path = a lit path, wall = a short wall); a window "
+                        + "opens for the materials. Helpers may join in.");
             }
             if (actions.contains(AiActionKind.FETCH)) {
                 offers.add("{\"type\": \"action\", \"do\": \"fetch\", \"item\": \"minecraft:item_id\", \"amount\": 1-64} "

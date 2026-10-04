@@ -30,6 +30,19 @@ public final class ConversationsCommand {
     private ConversationsCommand() {
     }
 
+    private static int diary(CommandSourceStack source, boolean book) {
+        if (!(source.getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) {
+            source.sendFailure(net.minecraft.network.chat.Component.literal("Players only."));
+            return 0;
+        }
+        if (book) {
+            dev.otectus.mcaconversations.ai.AiDiary.giveBook(player);
+        } else {
+            dev.otectus.mcaconversations.ai.AiDiary.show(player);
+        }
+        return 1;
+    }
+
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("conversations")
                 .then(Commands.literal("gossip")
@@ -53,6 +66,17 @@ public final class ConversationsCommand {
                                         .executes(ctx -> debugScore(ctx.getSource(),
                                                 StringArgumentType.getString(ctx, "message"))))))
                 );
+
+        // The player's diary: where they stand with the village (AI conversations).
+        for (String root : new String[]{"diary", "diario"}) {
+            dispatcher.register(Commands.literal(root)
+                    .executes(ctx -> diary(ctx.getSource(), false))
+                    .then(Commands.literal("book").executes(ctx -> diary(ctx.getSource(), true)))
+                    .then(Commands.literal("libro").executes(ctx -> diary(ctx.getSource(), true))));
+        }
+        dispatcher.register(Commands.literal("conversations").then(Commands.literal("diary")
+                .executes(ctx -> diary(ctx.getSource(), false))
+                .then(Commands.literal("book").executes(ctx -> diary(ctx.getSource(), true)))));
 
         // The living-histories operator surface is a separate tree because it is a different kind of
         // command: everything above is a feature switch or a chat test driver, and everything below

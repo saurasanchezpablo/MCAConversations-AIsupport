@@ -254,6 +254,31 @@ public final class AiReplyParser {
             case AiEffect.Grudge.TYPE -> {
                 return Optional.of(new AiEffect.Grudge());
             }
+            case AiEffect.Vote.TYPE -> {
+                String candidate = AiText.clean(string(json, "for").or(() -> string(json, "candidate")).orElse(""), MAX_TOKEN);
+                if (!candidate.isEmpty()) {
+                    return Optional.of(new AiEffect.Vote(candidate));
+                }
+            }
+            case AiEffect.Teach.TYPE -> {
+                Optional<AiChore> task = string(json, "task").flatMap(AiChore::byKey);
+                if (task.isPresent()) {
+                    return Optional.of(new AiEffect.Teach(task.get()));
+                }
+            }
+            case AiEffect.TeachRecipe.TYPE -> {
+                Optional<String> item = itemRef(json).filter(i -> !i.startsWith("#"));
+                if (item.isPresent()) {
+                    return Optional.of(new AiEffect.TeachRecipe(item.get()));
+                }
+            }
+            case AiEffect.SecretTold.TYPE -> {
+                String about = AiText.clean(string(json, "about").orElse(""), MAX_TOKEN);
+                if (!about.isEmpty()) {
+                    return Optional.of(new AiEffect.SecretTold(about,
+                            AiText.clean(string(json, "summary").orElse(""), AiText.MAX_MEMORY)));
+                }
+            }
             case AiEffect.Reconcile.TYPE -> {
                 String with = AiText.clean(string(json, "with").or(() -> string(json, "about")).orElse(""), MAX_TOKEN);
                 if (!with.isEmpty()) {
@@ -275,9 +300,26 @@ public final class AiReplyParser {
                     return Optional.empty();
                 }
                 boolean needsPlace = kind.get() == AiActionKind.GUIDE || kind.get() == AiActionKind.WAIT_AT;
-                String place = needsPlace ? token(json, "place").orElse("") : "";
+                String place = needsPlace || kind.get() == AiActionKind.DATE ? token(json, "place").orElse("") : "";
                 if (needsPlace && place.isEmpty()) {
                     return Optional.empty();
+                }
+                if (kind.get() == AiActionKind.DATE) {
+                    // "when": now = 0, this evening = 1, tomorrow evening = 2 (carried in amount).
+                    String when = string(json, "when").map(w -> w.trim().toLowerCase(Locale.ROOT)).orElse("evening");
+                    int at = when.startsWith("now") || when.equals("ahora") ? 0 : when.startsWith("tomorrow")
+                            || when.startsWith("mañana") ? 2 : 1;
+                    return Optional.of(new AiEffect.Action(kind.get(), Optional.empty(), at, "",
+                            place.equals("here") ? "" : place, List.of()));
+                }
+                if (kind.get() == AiActionKind.BUILD) {
+                    Optional<String> plan = token(json, "build").or(() -> token(json, "plan"))
+                            .filter(AiBuild.TEMPLATES::contains);
+                    if (plan.isEmpty()) {
+                        return Optional.empty();
+                    }
+                    return Optional.of(new AiEffect.Action(kind.get(), Optional.empty(), 0, plan.get(), "",
+                            helpers(json.get("helpers"))));
                 }
                 int amount = clampInt(json, "amount", needsItem ? 1 : 0, 0, kind.get() == AiActionKind.WORK ? 256 : 64);
                 return Optional.of(new AiEffect.Action(kind.get(), chore, amount, item, place, helpers(json.get("helpers"))));

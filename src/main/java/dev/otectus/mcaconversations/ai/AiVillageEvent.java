@@ -80,6 +80,8 @@ final class AiVillageEvent {
             case WEDDING -> "the wedding of " + name(0) + " and " + name(1) + at;
             case BIRTH -> "a celebration for the birth of " + name(0) + at;
             case WELCOME -> "a welcome for " + name(0) + ", who has just moved in" + at;
+            case MEETING -> "a village meeting about the attacks" + at;
+            case ELECTION -> "the election of the village leader between " + name(0) + " and " + name(1) + at;
             case QUARREL -> name(0) + " and " + name(1) + " falling out over " + (cause.isEmpty() ? "something" : cause);
         };
     }

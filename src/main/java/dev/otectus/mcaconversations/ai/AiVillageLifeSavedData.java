@@ -32,12 +32,42 @@ public final class AiVillageLifeSavedData extends SavedData {
     static final int MAX_EVENTS = 128;
     static final UUID NOBODY = new UUID(0, 0);
 
-    /** What was last seen of one village. */
+    /** What was last seen of one village, and its politics and troubles. */
     static final class Census {
         boolean initialised;
         long plannedDay = -1;
         final Set<UUID> residents = new HashSet<>();
         final Map<UUID, UUID> partners = new HashMap<>();
+        /** Age group last seen, by resident, to notice a child growing up. */
+        final Map<UUID, String> ages = new HashMap<>();
+        transient boolean changedAges;
+
+        // politics
+        UUID leader;
+        String leaderName = "";
+        String leaderPlatform = "";
+        long leaderSince = -1;
+        long nextElectionDay = -1;
+        final List<UUID> candidates = new ArrayList<>();
+        final List<String> candidateNames = new ArrayList<>();
+        final List<String> platforms = new ArrayList<>();
+        /** Who each villager means to vote for. */
+        final Map<UUID, UUID> votes = new HashMap<>();
+        /** Which candidate each player campaigned for. */
+        final Map<UUID, UUID> backers = new HashMap<>();
+
+        // troubles
+        long attackDay = -1;
+        int attacks;
+        int deaths;
+        String attacker = "";
+        long meetingDay = -1;
+        /** Monsters each player killed in the village. */
+        final Map<UUID, Integer> defenders = new HashMap<>();
+
+        boolean electionPending() {
+            return candidates.size() == 2;
+        }
     }
 
     /** {@code from} is ready to make peace with {@code to}, as {@code player} carried it. */
@@ -123,6 +153,24 @@ public final class AiVillageLifeSavedData extends SavedData {
         }
     }
 
+    /** Every village census, by key ({@code dimension|id}). */
+    Map<String, Census> censuses() {
+        return census;
+    }
+
+    private static void readMap(CompoundTag tag, String key, Map<UUID, UUID> into) {
+        List<UUID> keys = AiVillageEvent.readUuids(tag, key + "_k");
+        List<UUID> values = AiVillageEvent.readUuids(tag, key + "_v");
+        for (int i = 0; i < Math.min(keys.size(), values.size()); i++) {
+            into.put(keys.get(i), values.get(i));
+        }
+    }
+
+    private static void writeMap(CompoundTag tag, String key, Map<UUID, UUID> map) {
+        tag.put(key + "_k", AiVillageEvent.uuids(map.keySet()));
+        tag.put(key + "_v", AiVillageEvent.uuids(map.values()));
+    }
+
     private static AiVillageLifeSavedData load(CompoundTag tag, HolderLookup.Provider provider) {
         AiVillageLifeSavedData data = new AiVillageLifeSavedData();
         data.nextId = Math.max(1, tag.getInt("next"));
@@ -141,6 +189,48 @@ public final class AiVillageLifeSavedData extends SavedData {
             List<UUID> with = AiVillageEvent.readUuids(v, "with");
             for (int i = 0; i < Math.min(who.size(), with.size()); i++) {
                 c.partners.put(who.get(i), with.get(i));
+            }
+            CompoundTag ages = v.getCompound("ages");
+            for (String id : ages.getAllKeys()) {
+                try {
+                    c.ages.put(UUID.fromString(id), ages.getString(id));
+                } catch (IllegalArgumentException ignored) {
+                    // skipped
+                }
+            }
+            if (v.hasUUID("leader")) {
+                c.leader = v.getUUID("leader");
+            }
+            c.leaderName = AiText.clean(v.getString("leader_name"), 64);
+            c.leaderPlatform = AiText.clean(v.getString("leader_platform"), 64);
+            c.leaderSince = v.contains("leader_since") ? v.getLong("leader_since") : -1;
+            c.nextElectionDay = v.contains("next_election") ? v.getLong("next_election") : -1;
+            c.candidates.addAll(AiVillageEvent.readUuids(v, "candidates"));
+            ListTag names = v.getList("candidate_names", Tag.TAG_STRING);
+            ListTag plats = v.getList("platforms", Tag.TAG_STRING);
+            for (int i = 0; i < names.size(); i++) {
+                c.candidateNames.add(AiText.clean(names.getString(i), 64));
+                c.platforms.add(i < plats.size() ? AiText.clean(plats.getString(i), 64) : "");
+            }
+            if (c.candidates.size() != c.candidateNames.size()) {
+                c.candidates.clear();
+                c.candidateNames.clear();
+                c.platforms.clear();
+            }
+            readMap(v, "votes", c.votes);
+            readMap(v, "backers", c.backers);
+            c.attackDay = v.contains("attack_day") ? v.getLong("attack_day") : -1;
+            c.attacks = v.getInt("attacks");
+            c.deaths = v.getInt("deaths");
+            c.attacker = AiText.clean(v.getString("attacker"), 64);
+            c.meetingDay = v.contains("meeting_day") ? v.getLong("meeting_day") : -1;
+            CompoundTag defenders = v.getCompound("defenders");
+            for (String id : defenders.getAllKeys()) {
+                try {
+                    c.defenders.put(UUID.fromString(id), defenders.getInt(id));
+                } catch (IllegalArgumentException ignored) {
+                    // skipped
+                }
             }
             data.census.put(key, c);
         }
@@ -177,6 +267,33 @@ public final class AiVillageLifeSavedData extends SavedData {
             }
             v.put("who", AiVillageEvent.uuids(who));
             v.put("with", AiVillageEvent.uuids(with));
+            CompoundTag ages = new CompoundTag();
+            c.ages.forEach((id, age) -> ages.putString(id.toString(), age));
+            v.put("ages", ages);
+            if (c.leader != null) {
+                v.putUUID("leader", c.leader);
+            }
+            v.putString("leader_name", c.leaderName);
+            v.putString("leader_platform", c.leaderPlatform);
+            v.putLong("leader_since", c.leaderSince);
+            v.putLong("next_election", c.nextElectionDay);
+            v.put("candidates", AiVillageEvent.uuids(c.candidates));
+            ListTag names = new ListTag();
+            c.candidateNames.forEach(n -> names.add(net.minecraft.nbt.StringTag.valueOf(n)));
+            v.put("candidate_names", names);
+            ListTag plats = new ListTag();
+            c.platforms.forEach(n -> plats.add(net.minecraft.nbt.StringTag.valueOf(n)));
+            v.put("platforms", plats);
+            writeMap(v, "votes", c.votes);
+            writeMap(v, "backers", c.backers);
+            v.putLong("attack_day", c.attackDay);
+            v.putInt("attacks", c.attacks);
+            v.putInt("deaths", c.deaths);
+            v.putString("attacker", c.attacker);
+            v.putLong("meeting_day", c.meetingDay);
+            CompoundTag defenders = new CompoundTag();
+            c.defenders.forEach((id, n) -> defenders.putInt(id.toString(), n));
+            v.put("defenders", defenders);
             villages.put(e.getKey(), v);
         }
         tag.put("census", villages);

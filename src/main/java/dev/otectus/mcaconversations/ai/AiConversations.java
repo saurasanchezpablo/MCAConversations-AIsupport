@@ -65,6 +65,10 @@ public final class AiConversations {
     private static final Map<UUID, Long> LAST_FAILURE_NOTICE = new HashMap<>();
     private static volatile AiTransport transport = new HttpAiTransport();
 
+    static AiTransport transport() {
+        return transport;
+    }
+
     private AiConversations() {
     }
 
@@ -234,6 +238,14 @@ public final class AiConversations {
                     McaConversations.LOGGER.debug("AI mediation failed; skipped", t);
                 }
             });
+            // Elections, teaching, secrets passed on; a date, a child, a hero; and the diary's snapshot.
+            applyLife(server, villager, player, villagerName, plan, turn, now, day);
+            if (!opener) {
+                AiDates.onTurn(server, villagerId, playerId, reply.sentiment());
+                AiChildhood.onTurn(server, villager, player, reply.sentiment());
+                AiThreats.heroThanks(server, villager, player, now);
+            }
+            AiMemorySavedData.get(server).edit(villagerId, playerId).snapshot(villagerName, McaCompat.getHearts(player, villager));
             // How the line should sound, sent ahead of MCA delivering it.
             AiVoice.direct(player, villager, reply.dialogue(), reply.emotion(), reply.deliveryOrDefault(), turn.facts());
             if (opener) {
@@ -259,6 +271,26 @@ public final class AiConversations {
             return Optional.of(reply.dialogue());
         } finally {
             SESSIONS.finish(villagerId, playerId, now);
+        }
+    }
+
+    /** The validated life effects of a reply; each one is checked again against the game as it is applied. */
+    private static void applyLife(MinecraftServer server, Entity villager, ServerPlayer player, String villagerName,
+                                  AiOutcomePlan plan, AiSocial.Turn turn, long now, long day) {
+        for (AiEffect effect : plan.life()) {
+            try {
+                if (effect instanceof AiEffect.Vote vote) {
+                    AiPolitics.vote(server, villager, player, vote.candidate(), day);
+                } else if (effect instanceof AiEffect.Teach teach) {
+                    AiSkills.teach(server, villager, player, villagerName, teach.task(), day);
+                } else if (effect instanceof AiEffect.TeachRecipe recipe) {
+                    AiSkills.teachRecipe(server, villager, player, villagerName, recipe.item(), day);
+                } else if (effect instanceof AiEffect.SecretTold told) {
+                    AiSecrets.told(server, villager, player, villagerName, told.about(), told.summary(), turn, now, day);
+                }
+            } catch (Throwable t) {
+                McaConversations.LOGGER.debug("AI life effect {} failed; skipped", effect.type(), t);
+            }
         }
     }
 
@@ -527,6 +559,7 @@ public final class AiConversations {
             McaConversations.LOGGER.debug("AI bereavement record failed", t);
         }
         try {
+            AiLivesSavedData.get(server).removeVillager(deceased.getUUID());
             AiVillageEvents.onDeath(server, deceased);
         } catch (Throwable t) {
             McaConversations.LOGGER.debug("AI funeral planning failed", t);
@@ -543,6 +576,7 @@ public final class AiConversations {
         try {
             long now = villager.level().getGameTime();
             AiPromises.onGift(player.getServer(), villager, player, stack, now, AffectionMath.dayOf(now));
+            AiChildhood.onGift(player.getServer(), villager, player);
         } catch (Throwable t) {
             McaConversations.LOGGER.debug("AI gift observation failed", t);
         }
@@ -583,6 +617,10 @@ public final class AiConversations {
         if (enabled()) {
             AiVillageEvents.tick(server);
             AiBubbles.tick(server);
+            AiDates.tick(server);
+            AiBuild.tick(server);
+            AiSmallTalk.tick(server);
+            AiSecrets.tick(server);
         }
         if (autoConversations()) {
             AiInitiative.tick(server);
@@ -592,6 +630,7 @@ public final class AiConversations {
     /** A player is leaving: what errands held for them is handed back first. */
     public static void onPlayerLogout(ServerPlayer player) {
         AiErrands.forgetPlayer(player);
+        AiBuild.forgetPlayer(player);
         AiBubbles.forgetPlayer(player.getUUID());
         onPlayerLogout(player.getUUID());
     }
@@ -620,5 +659,8 @@ public final class AiConversations {
         AiErrands.reset();
         AiVillageEvents.reset();
         AiBubbles.reset();
+        AiBuild.reset();
+        AiSmallTalk.reset();
+        AiThreats.reset();
     }
 }

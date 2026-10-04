@@ -320,6 +320,14 @@ public final class McaConversationsConfig {
         return serverBool(SERVER.aiBubbles, true);
     }
 
+    public static boolean aiVillagerChatter() {
+        return serverBool(SERVER.aiVillagerChatter, true);
+    }
+
+    public static int aiVillagerChatterCooldownTicks() {
+        return serverInt(SERVER.aiVillagerChatterCooldownTicks, 4800);
+    }
+
     public static boolean aiVillageEvents() {
         return serverBool(SERVER.aiVillageEvents, true);
     }
@@ -1169,6 +1177,8 @@ public final class McaConversationsConfig {
         public final ModConfigSpec.BooleanValue aiBubbles;
         public final ModConfigSpec.BooleanValue aiVillageEvents;
         public final ModConfigSpec.DoubleValue aiVillageEventChance;
+        public final ModConfigSpec.BooleanValue aiVillagerChatter;
+        public final ModConfigSpec.IntValue aiVillagerChatterCooldownTicks;
 
         Server(ModConfigSpec.Builder b) {
             b.comment("Values the server decides for everyone connected to it. Stored per world under",
@@ -1454,6 +1464,14 @@ public final class McaConversationsConfig {
                     "Chance each morning that a village with a player in it plans something of its own (a festival, a",
                     "market day, a quarrel). Funerals, weddings, births and welcomes always happen when due.")
                     .defineInRange("villageEventChance", 0.35, 0.0, 1.0);
+            aiVillagerChatter = b.comment(
+                    "Villagers standing together near a player sometimes have a short chat of their own (written by the",
+                    "model) that the player overhears; a chat can leave them a little fonder of each other or cooler.")
+                    .define("villagerChatter", true);
+            aiVillagerChatterCooldownTicks = b.comment(
+                    "Least time between two overheard villager chats near one player, in ticks (4800 = 4 min). Each chat",
+                    "is one request to the chat-AI endpoint.")
+                    .defineInRange("villagerChatterCooldownTicks", 4800, 1200, 72000);
             b.pop();
         }
     }

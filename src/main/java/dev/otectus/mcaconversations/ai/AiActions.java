@@ -85,10 +85,13 @@ final class AiActions {
             // The player puts what to cook (and any fuel) in the cooking window; the errand starts when it closes.
             case COOK -> AiTasks.schedule(now + SCREEN_DELAY_TICKS, () -> {
                 if (villager.isAlive() && !player.hasDisconnected() && villager.distanceTo(player) <= 8) {
-                    AiCookMenu.open(player, villager);
+                    AiHandoverMenu.open(player, villager, "mcaconversations.ai.cook_title", 1, handed ->
+                            AiErrands.startCook(villager, player, handed, villagerName, player.serverLevel().getGameTime()));
                 }
             });
             case GIVE -> give(villager, player, action.item(), Math.max(1, action.amount()));
+            case BUILD -> openBuild(villager, player, action, List.of(), now);
+            case DATE -> AiDates.agree(villager, player, villagerName, action, turn, now);
         }
     }
 
@@ -134,6 +137,7 @@ final class AiActions {
                     AiErrands.start(e, player, action, turn, name(e), e == leader, now);
                 }
             }
+            case BUILD -> openBuild(leader, player, action, helpers, now);
             case FOLLOW, STAY, MOVE, GO_HOME -> {
                 String command = switch (action.kind()) {
                     case FOLLOW -> "FOLLOW";
@@ -158,6 +162,17 @@ final class AiActions {
                         AiEmotion.HAPPY, VoiceIntent.STATEMENT);
             }
         }
+    }
+
+    /** The materials window; the build starts when it closes, with whoever was brought in to help. */
+    private static void openBuild(Entity leader, ServerPlayer player, AiEffect.Action action, List<Entity> helpers, long now) {
+        AiTasks.schedule(now + SCREEN_DELAY_TICKS, () -> {
+            if (leader.isAlive() && !player.hasDisconnected() && leader.distanceTo(player) <= 8) {
+                AiHandoverMenu.open(player, leader, "mcaconversations.ai.build_title", 3, handed ->
+                        AiBuild.start(leader, helpers.stream().filter(Entity::isAlive).toList(), player, action.item(), handed,
+                                player.serverLevel().getGameTime()));
+            }
+        });
     }
 
     private static String name(Entity e) {

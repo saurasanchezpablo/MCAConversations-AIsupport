@@ -41,6 +41,9 @@ public final class AiPairMemory {
     private long lastDirectionsDay = -1;
     private long tradeMoodDay = -1;
     private int tradeMoodToday;
+    /** The villager's name and the player's hearts with them at the last turn, for the player's diary. */
+    private String villagerName = "";
+    private int lastHearts;
 
     /**
      * Stores a memory. A memory saying the same thing as one already held reinforces it instead (newer
@@ -60,17 +63,19 @@ public final class AiPairMemory {
         }
         String fingerprint = AiText.fingerprint(text);
         AiImportance importance = note.importance();
+        boolean secret = note.secret();
         for (int i = 0; i < memories.size(); i++) {
             AiMemory held = memories.get(i);
             if (AiText.fingerprint(held.text()).equals(fingerprint)) {
                 if (held.importance().weight() > importance.weight()) {
                     importance = held.importance();
                 }
+                secret |= held.secret();
                 memories.remove(i);
                 break;
             }
         }
-        memories.add(new AiMemory(text, importance, sentiment == null ? AiSentiment.NEUTRAL : sentiment, day));
+        memories.add(new AiMemory(text, importance, sentiment == null ? AiSentiment.NEUTRAL : sentiment, day, secret));
         forgetExpired(day);
         while (memories.size() > limit) {
             memories.remove(memories.stream().min(EVICTION_ORDER).orElseThrow());
@@ -196,6 +201,32 @@ public final class AiPairMemory {
         return granted;
     }
 
+    /** Secrets the villager confided in this player. */
+    public List<AiMemory> secrets() {
+        return memories.stream().filter(AiMemory::secret).toList();
+    }
+
+    public List<AiMemory> memories() {
+        return List.copyOf(memories);
+    }
+
+    public void snapshot(String name, int hearts) {
+        villagerName = AiText.clean(name, 64);
+        lastHearts = hearts;
+    }
+
+    public String villagerName() {
+        return villagerName;
+    }
+
+    public int lastHearts() {
+        return lastHearts;
+    }
+
+    public long grudgeUntil() {
+        return grudgeUntil;
+    }
+
     public void recordTurn(long day) {
         lastTalkDay = day;
         turns = turns == Integer.MAX_VALUE ? turns : turns + 1;
@@ -240,6 +271,8 @@ public final class AiPairMemory {
         tag.putLong("directions_day", lastDirectionsDay);
         tag.putLong("trade_day", tradeMoodDay);
         tag.putInt("trade_today", tradeMoodToday);
+        tag.putString("name", villagerName);
+        tag.putInt("hearts", lastHearts);
         return tag;
     }
 
@@ -264,6 +297,8 @@ public final class AiPairMemory {
         pair.lastDirectionsDay = tag.contains("directions_day") ? tag.getLong("directions_day") : -1;
         pair.tradeMoodDay = tag.contains("trade_day") ? tag.getLong("trade_day") : -1;
         pair.tradeMoodToday = Math.max(0, tag.getInt("trade_today"));
+        pair.villagerName = AiText.clean(tag.getString("name"), 64);
+        pair.lastHearts = tag.getInt("hearts");
         return pair;
     }
 }

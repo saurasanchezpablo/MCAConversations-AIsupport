@@ -189,6 +189,25 @@ final class AiVillageEvents {
             return;
         }
         List<Entity> loaded = McaCompat.loadedVillageResidents(level, village.id());
+        // Children growing up: what they remember of the players who knew them.
+        for (Entity resident : loaded) {
+            String age = McaCompat.ageGroup(resident).name();
+            String before = census.ages.put(resident.getUUID(), age);
+            if (before != null && !before.equals(age)) {
+                census.changedAges = true;
+                AgeGroup was;
+                try {
+                    was = AgeGroup.valueOf(before);
+                } catch (IllegalArgumentException e) {
+                    was = AgeGroup.UNKNOWN;
+                }
+                if (AiChildhood.child(was) && !AiChildhood.child(McaCompat.ageGroup(resident))
+                        && McaCompat.ageGroup(resident) != AgeGroup.UNKNOWN) {
+                    AiChildhood.grewUp(server, resident);
+                }
+            }
+        }
+        census.ages.keySet().retainAll(residents.keySet());
         if (!census.initialised) {
             census.initialised = true;
             census.residents.addAll(residents.keySet());
@@ -214,9 +233,11 @@ final class AiVillageEvents {
                 }
             }
         }
-        if (changed) {
+        if (changed || census.changedAges) {
+            census.changedAges = false;
             data.changed();
         }
+        AiPolitics.maintain(server, level, village.id(), data, census, now);
     }
 
     private static void newcomer(MinecraftServer server, Village village, AiVillageLifeSavedData data, UUID id, String name,
@@ -261,18 +282,36 @@ final class AiVillageEvents {
         }
         census.plannedDay = today;
         data.changed();
+        // A new day: old grudges between neighbours ease a little.
+        AiSmallTalk.drift(server, McaCompat.loadedVillageResidents(village.level(), village.id()),
+                AffectionMath.dayOf(server.overworld().getGameTime()));
+        String platform = AiPolitics.platform(census);
         boolean busy = data.events().stream().anyMatch(e -> e.villageId == village.id() && !e.ended
                 && e.type != AiVillageEventType.QUARREL && Math.floorDiv(e.start, AiVillageEventType.DAY) == today);
         ThreadLocalRandom random = ThreadLocalRandom.current();
-        if (busy || random.nextDouble() >= McaConversationsConfig.aiVillageEventChance()) {
+        double chance = McaConversationsConfig.aiVillageEventChance();
+        if (platform.equals("markets") || platform.equals("festivals")) {
+            chance = Math.min(1.0, chance + 0.15); // the leader keeps their promise
+        }
+        if (busy || random.nextDouble() >= chance) {
             return;
         }
         AiVillageEventType type = AiVillageEventType.pickPlanned(random.nextDouble());
+        if (platform.equals("markets") && random.nextBoolean()) {
+            type = AiVillageEventType.MARKET;
+        } else if (platform.equals("festivals") && random.nextBoolean()) {
+            type = random.nextBoolean() ? AiVillageEventType.FESTIVAL : AiVillageEventType.HARVEST_FEAST;
+        } else if (platform.equals("harmony") && type == AiVillageEventType.QUARREL && random.nextBoolean()) {
+            return; // the leader settles it before it starts
+        }
         if (type == AiVillageEventType.QUARREL) {
             quarrel(server, village, data, now);
             return;
         }
-        type.startToday(now, 1_200).ifPresent(start -> schedule(server, village, data, type, start, List.of(), List.of(), "", null));
+        AiVillageEventType chosen = type;
+        UUID organizer = census.leader != null && village.level().getEntity(census.leader) != null ? census.leader : null;
+        chosen.startToday(now, 1_200).ifPresent(start -> schedule(server, village, data, chosen, start, List.of(), List.of(), "",
+                organizer));
     }
 
     private static void quarrel(MinecraftServer server, Village village, AiVillageLifeSavedData data, long now) {
@@ -296,6 +335,36 @@ final class AiVillageEvents {
                 return;
             }
         }
+    }
+
+    static String villageKey(ServerLevel level, int villageId) {
+        return new Village(level, villageId).key();
+    }
+
+    /** After an attack: the village meets the next morning to talk it over (once). */
+    static void scheduleMeeting(MinecraftServer server, ServerLevel level, int villageId, String attacker) {
+        if (!enabled()) {
+            return;
+        }
+        AiVillageLifeSavedData data = AiVillageLifeSavedData.get(server);
+        long now = server.overworld().getDayTime();
+        long tomorrow = Math.floorDiv(now, AiVillageEventType.DAY) + 1;
+        AiVillageLifeSavedData.Census census = data.census(villageKey(level, villageId));
+        if (census.meetingDay >= tomorrow) {
+            return;
+        }
+        census.meetingDay = tomorrow;
+        data.changed();
+        schedule(server, new Village(level, villageId), data, AiVillageEventType.MEETING,
+                tomorrow * AiVillageEventType.DAY + AiVillageEventType.MEETING.startTime(), List.of(), List.of(attacker),
+                attacker, null);
+    }
+
+    /** The election day: the two candidates are who it is about. */
+    static AiVillageEvent scheduleElection(MinecraftServer server, ServerLevel level, int villageId, long start,
+                                           List<UUID> candidates, List<String> names) {
+        return schedule(server, new Village(level, villageId), AiVillageLifeSavedData.get(server),
+                AiVillageEventType.ELECTION, start, candidates, names, "", null);
     }
 
     /** A villager died: the funeral is the next day, for those who loved them. */
@@ -514,7 +583,8 @@ final class AiVillageEvents {
             return false;
         }
         UUID id = villager.getUUID();
-        if (AiWork.job(id).isPresent() || AiErrands.busy(id) || AiConversations.inConversation(id, gameTime)
+        if (AiWork.job(id).isPresent() || AiErrands.busy(id) || AiBuild.busy(id) || AiSmallTalk.busy(id)
+                || AiConversations.inConversation(id, gameTime)
                 || McaCompat.isInteractingWith(villager).isPresent()) {
             return false;
         }
@@ -570,7 +640,7 @@ final class AiVillageEvents {
     }
 
     /** Walks a villager to its place through its own brain, and has it face the middle once there. */
-    private static void steer(Entity entity, BlockPos target, BlockPos centre) {
+    static void steer(Entity entity, BlockPos target, BlockPos centre) {
         double distance = entity.distanceToSqr(target.getX() + 0.5, target.getY(), target.getZ() + 0.5);
         if (entity instanceof Villager villager) {
             Brain<Villager> brain = villager.getBrain();
@@ -683,6 +753,12 @@ final class AiVillageEvents {
     private static void finish(MinecraftServer server, AiVillageLifeSavedData data, AiVillageEvent event) {
         event.ended = true;
         data.changed();
+        if (event.type == AiVillageEventType.ELECTION) {
+            ServerLevel electionLevel = level(server, event.dimension);
+            if (electionLevel != null) {
+                AiPolitics.tally(server, electionLevel, event);
+            }
+        }
         Live live = LIVE.remove(event.id);
         if (live == null) {
             return;
@@ -726,6 +802,8 @@ final class AiVillageEvents {
             case FESTIVAL -> BossEvent.BossBarColor.PURPLE;
             case HARVEST_FEAST -> BossEvent.BossBarColor.YELLOW;
             case MARKET, WELCOME -> BossEvent.BossBarColor.GREEN;
+            case MEETING -> BossEvent.BossBarColor.RED;
+            case ELECTION -> BossEvent.BossBarColor.BLUE;
             case FUNERAL -> BossEvent.BossBarColor.WHITE;
             case WEDDING -> BossEvent.BossBarColor.PINK;
             case BIRTH -> BossEvent.BossBarColor.BLUE;
@@ -771,8 +849,9 @@ final class AiVillageEvents {
                         AiImportance.LOW), AiSentiment.POSITIVE, day, cap);
             }
             if (event.type == AiVillageEventType.MARKET && guest instanceof Villager trader) {
-                int granted = memory.edit(guest.getUUID(), player.getUUID())
-                        .claimTradeMood(AiOutcomePlan.TRADE_BONUS, day, AiSocialEffects.TRADE_MOOD_DAILY_CAP);
+                boolean fair = AiPolitics.platform(data(server, event)).equals("prices");
+                int granted = memory.edit(guest.getUUID(), player.getUUID()).claimTradeMood(
+                        AiOutcomePlan.TRADE_BONUS * (fair ? 2 : 1), day, AiSocialEffects.TRADE_MOOD_DAILY_CAP * (fair ? 2 : 1));
                 if (granted > 0) {
                     trader.getGossips().add(player.getUUID(), GossipType.MINOR_POSITIVE, granted);
                 }
@@ -780,6 +859,10 @@ final class AiVillageEvents {
         }
         player.displayClientMessage(Component.translatable("mcaconversations.ai.event.attended", title(event))
                 .withStyle(ChatFormatting.GOLD), true);
+    }
+
+    private static AiVillageLifeSavedData.Census data(MinecraftServer server, AiVillageEvent event) {
+        return AiVillageLifeSavedData.get(server).census(event.dimension + "|" + event.villageId);
     }
 
     private static void hearts(MinecraftServer server, Entity villager, ServerPlayer player, AiVillageEvent event, int hearts,
@@ -811,6 +894,8 @@ final class AiVillageEvents {
             case WEDDING -> player + " came to the wedding of " + event.name(0) + " and " + event.name(1) + ".";
             case BIRTH -> player + " came to celebrate " + event.name(0) + "'s birth.";
             case WELCOME -> player + " came to welcome " + event.name(0) + " to the village.";
+            case MEETING -> player + " came to the village meeting about the attacks.";
+            case ELECTION -> player + " was there for the election.";
             case QUARREL -> player + " saw " + event.name(0) + " and " + event.name(1) + " arguing.";
         };
     }
@@ -916,6 +1001,22 @@ final class AiVillageEvents {
                 });
             }
             out.add(line.toString());
+        }
+        return out;
+    }
+
+    /** What is going on in the villager's village, plainly, for villagers chatting among themselves. */
+    static List<String> villageNews(MinecraftServer server, Entity villager) {
+        List<String> out = new ArrayList<>();
+        OptionalInt village = McaCompat.getHomeVillageId(villager);
+        if (!enabled() || village.isEmpty()) {
+            return out;
+        }
+        long now = server.overworld().getDayTime();
+        for (AiVillageEvent event : AiVillageLifeSavedData.get(server).events()) {
+            if (event.villageId == village.getAsInt() && (event.type != AiVillageEventType.QUARREL || event.started)) {
+                out.add(capitalise(event.when(now)) + ": " + event.describe());
+            }
         }
         return out;
     }

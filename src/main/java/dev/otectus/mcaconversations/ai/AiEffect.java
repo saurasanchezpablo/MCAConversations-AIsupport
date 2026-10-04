@@ -16,7 +16,8 @@ import java.util.Optional;
  */
 public sealed interface AiEffect permits AiEffect.DispositionNudge, AiEffect.Promise, AiEffect.Wish,
         AiEffect.OfferQuest, AiEffect.UnlockTopic, AiEffect.Opinion, AiEffect.Directions, AiEffect.Discount,
-        AiEffect.Forgive, AiEffect.Grudge, AiEffect.Action, AiEffect.Reconcile {
+        AiEffect.Forgive, AiEffect.Grudge, AiEffect.Action, AiEffect.Reconcile, AiEffect.Vote, AiEffect.Teach,
+        AiEffect.TeachRecipe, AiEffect.SecretTold {
 
     /** The stable key the model uses for this effect type. */
     String type();
@@ -185,6 +186,46 @@ public sealed interface AiEffect permits AiEffect.DispositionNudge, AiEffect.Pro
      */
     record Reconcile(String with) implements AiEffect {
         public static final String TYPE = "reconcile";
+
+        @Override
+        public String type() {
+            return TYPE;
+        }
+    }
+
+    /** The player talked the villager into voting for a candidate in the village election. */
+    record Vote(String candidate) implements AiEffect {
+        public static final String TYPE = "vote";
+
+        @Override
+        public String type() {
+            return TYPE;
+        }
+    }
+
+    /** The player showed the villager how to do a task better. */
+    record Teach(AiChore task) implements AiEffect {
+        public static final String TYPE = "teach";
+
+        @Override
+        public String type() {
+            return TYPE;
+        }
+    }
+
+    /** The villager teaches the player how to make something (a recipe the player did not know). */
+    record TeachRecipe(String item) implements AiEffect {
+        public static final String TYPE = "teach_recipe";
+
+        @Override
+        public String type() {
+            return TYPE;
+        }
+    }
+
+    /** The player passed on something a neighbour told them in confidence. */
+    record SecretTold(String about, String summary) implements AiEffect {
+        public static final String TYPE = "secret_told";
 
         @Override
         public String type() {

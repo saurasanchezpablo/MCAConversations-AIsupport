@@ -82,7 +82,8 @@ public final class AiPromptBuilder {
         } else {
             for (AiMemory memory : in.memories()) {
                 sb.append("- ").append(memory.text()).append(" (").append(ago(in.today() - memory.day()))
-                        .append(", ").append(memory.importance().key()).append(" importance)\n");
+                        .append(", ").append(memory.importance().key()).append(" importance")
+                        .append(memory.secret() ? ", told in confidence" : "").append(")\n");
             }
         }
         sb.append("Stay consistent with these memories and refer back to them when it is natural. Never invent ")
