@@ -202,6 +202,9 @@ final class AiActions {
         }
         inventory.setChanged();
         long now = player.serverLevel().getGameTime();
+        if (took) {
+            AiConversations.markReceived(villager.getUUID(), player.getUUID(), now);
+        }
         if (!AiWork.resumeIfReady(villager, player, villagerName, now)) {
             AiWork.awaiting(villager.getUUID()).ifPresentOrElse(chore -> AiLines.say(villager, player,
                             AiLines.variant("work_no_tool", Component.translatable("mcaconversations.ai.tool." + chore.key())),

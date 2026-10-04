@@ -233,8 +233,11 @@ public final class AiConversations {
             AiConsistency.Decision decision = opener || !policy.gameplayEffects() ? AiConsistency.Decision.NONE
                     : AiConsistency.decide(message, reply, plan, turn.facts());
             List<AiActions.Result> results = AiActions.apply(villager, player, villagerName, decision.run(), turn, now);
-            List<AiActions.Issue> issues = AiConsistency.issues(decision, results, turn.facts(),
-                    player.getName().getString(), villager);
+            List<AiActions.Issue> issues = new java.util.ArrayList<>(AiConsistency.issues(decision, results, turn.facts(),
+                    player.getName().getString(), villager));
+            // Nor may they claim to have been given what they were not.
+            AiConsistency.receipt(reply.dialogue(), chore -> AiWork.hasTool(villager, chore),
+                    receivedRecently(villagerId, playerId, now), player.getName().getString()).ifPresent(issues::add);
             // The player talked them into making peace with a neighbour.
             plan.reconcile().ifPresent(with -> {
                 try {
@@ -419,6 +422,20 @@ public final class AiConversations {
     }
 
     /** The villager this player is in an AI conversation with, if it is still live. */
+    /** When each villager last really received something from each player (gift, loan, bag). */
+    private static final Map<String, Long> RECEIVED = new HashMap<>();
+    static final long RECEIVED_WINDOW = 1_200;
+
+    /** The player really handed this villager something (gift window, lend window, bag, MCA gift). */
+    static void markReceived(UUID villager, UUID player, long now) {
+        RECEIVED.put(villager + "/" + player, now);
+    }
+
+    static boolean receivedRecently(UUID villager, UUID player, long now) {
+        Long at = RECEIVED.get(villager + "/" + player);
+        return at != null && now - at <= RECEIVED_WINDOW;
+    }
+
     /** Whether some player is in a live AI conversation with this villager. */
     static boolean inConversation(UUID villager, long now) {
         long idle = McaConversationsConfig.aiConversationIdleTicks();
@@ -648,6 +665,7 @@ public final class AiConversations {
             long now = villager.level().getGameTime();
             AiPromises.onGift(player.getServer(), villager, player, stack, now, AffectionMath.dayOf(now));
             AiChildhood.onGift(player.getServer(), villager, player);
+            markReceived(villager.getUUID(), player.getUUID(), now);
         } catch (Throwable t) {
             McaConversations.LOGGER.debug("AI gift observation failed", t);
         }

@@ -179,7 +179,8 @@ final class AiActionContext {
                 tools.add(chore.tool() + " (can go " + chore.mcaCommand() + ")");
             }
         }
-        lines.add("Your tools: " + (tools.isEmpty() ? "none" : String.join(", ", tools)));
+        lines.add("Your tools: " + (tools.isEmpty() ? "none (nobody has given you one; never pretend otherwise)"
+                : String.join(", ", tools)));
         lines.add("You carry: " + (carried.isEmpty() ? "nothing" : carried.entrySet().stream().limit(10)
                 .map(e -> e.getValue() + " " + e.getKey()).collect(Collectors.joining(", "))));
         AiErrands.progressText(villager).ifPresent(p -> lines.add("Your current errand: " + p));

@@ -55,8 +55,10 @@ final class AiConsistency {
             }
         }
         // 2. A yes to what the player plainly asked.
+        // (Being handed a gift needs no yes: the window opens unless the villager turns it down.)
         if (asked.isPresent() && !refused && !reply.sentiment().negative()
-                && (AiCommitment.accepts(line) || said.containsKey(asked.get().kind()) || !plan.actions().isEmpty())) {
+                && (AiCommitment.accepts(line) || said.containsKey(asked.get().kind()) || !plan.actions().isEmpty()
+                || asked.get().kind() == AiActionKind.GIFT)) {
             claimed.putIfAbsent(asked.get().kind(), new AiCommitment.Claim(asked.get().kind(), asked.get().chore()));
         }
         // 3. First-person promises in the line, when the player was asking for something.
@@ -140,6 +142,35 @@ final class AiConsistency {
             out.add(notPossible(claim, facts, playerName, villager));
         }
         return out;
+    }
+
+    /**
+     * The villager says they were given something. A tool must really be in their hands or bag; anything
+     * else must really have been handed over in the last minute ({@code recentlyReceived}).
+     *
+     * @param hasTool whether the villager holds the tool for that task now
+     */
+    static Optional<AiActions.Issue> receipt(String line, java.util.function.Predicate<AiChore> hasTool,
+                                             boolean recentlyReceived, String playerName) {
+        Optional<AiCommitment.Received> claim = AiCommitment.received(line);
+        if (claim.isEmpty()) {
+            return Optional.empty();
+        }
+        Optional<AiChore> tool = claim.get().tool();
+        if (tool.isPresent()) {
+            if (hasTool.test(tool.get())) {
+                return Optional.empty();
+            }
+            return Optional.of(new AiActions.Issue(playerName + " has NOT given you " + tool.get().tool()
+                    + ": you still do not have one. Do not thank them for it; if you need it, ask for it",
+                    AiLines.variant("work_no_tool", net.minecraft.network.chat.Component.translatable(
+                            "mcaconversations.ai.tool." + tool.get().key()))));
+        }
+        if (recentlyReceived) {
+            return Optional.empty();
+        }
+        return Optional.of(new AiActions.Issue(playerName + " has not given you anything just now; do not thank them for "
+                + "a gift you did not receive", AiLines.variant("cannot.generic")));
     }
 
     /** Why an action the villager committed to was not one they could take. */

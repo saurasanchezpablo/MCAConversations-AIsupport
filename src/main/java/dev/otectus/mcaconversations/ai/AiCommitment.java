@@ -87,6 +87,54 @@ final class AiCommitment {
     private AiCommitment() {
     }
 
+    /** Something the villager says they were given: a tool for a task, or just "something". */
+    record Received(Optional<AiChore> tool, String word) {
+    }
+
+    private static final String TOOL_WORDS = "(hacha|cana( de pescar)?|azada|pico|espada|herramienta|axe|fishing rod|rod|hoe|"
+            + "pickaxe|pick|sword|tool)";
+    private static final String GIFT_WORDS = "(regalo|presente|obsequio|gift|present)";
+    private static final Pattern RECEIVED_TOOL = Pattern.compile("\\b(gracias por (el|la|los|las|tu|tus|este|esta|un|una) "
+            + TOOL_WORDS + "|(ya|ahora) (que )?tengo (el|la|un|una|mi|tu) " + TOOL_WORDS + "|con (el|la|este|esta|tu) "
+            + TOOL_WORDS + " que me (has )?(dado|diste|prestaste|prestado)|me (has )?(dado|diste|prestaste|prestado|traido|"
+            + "trajiste) (el|la|un|una|tu) " + TOOL_WORDS + "|thanks? (you )?for the " + TOOL_WORDS + "|now (that )?i (have|got) "
+            + "(an?|the|your) " + TOOL_WORDS + "|with the " + TOOL_WORDS + " you (gave|lent)|you (gave|lent) me (an?|the|your) "
+            + TOOL_WORDS + ")\\b");
+    private static final Pattern RECEIVED_ANY = Pattern.compile("\\b(gracias por (el|tu|este) " + GIFT_WORDS
+            + "|me (has )?(dado|diste|regalado|regalaste|traido|trajiste) (algo|esto|eso)|lo que me (has )?(dado|diste|regalaste)|"
+            + "thanks? (you )?for the " + GIFT_WORDS + "|you (gave|brought) me (something|this))\\b");
+
+    /** What the villager claims to have been given in this line, if anything. Pure. */
+    static Optional<Received> received(String line) {
+        String text = AiIntent.normalise(line);
+        Matcher m = RECEIVED_TOOL.matcher(text);
+        if (m.find()) {
+            String word = m.group();
+            return Optional.of(new Received(toolChore(word), word));
+        }
+        Matcher any = RECEIVED_ANY.matcher(text);
+        return any.find() ? Optional.of(new Received(Optional.empty(), any.group())) : Optional.empty();
+    }
+
+    private static Optional<AiChore> toolChore(String text) {
+        if (text.matches(".*\\b(hacha|axe)\\b.*")) {
+            return Optional.of(AiChore.CHOP);
+        }
+        if (text.matches(".*\\b(pico|pickaxe|pick)\\b.*")) {
+            return Optional.of(AiChore.MINE);
+        }
+        if (text.matches(".*\\b(cana|fishing rod|rod)\\b.*")) {
+            return Optional.of(AiChore.FISH);
+        }
+        if (text.matches(".*\\b(azada|hoe)\\b.*")) {
+            return Optional.of(AiChore.HARVEST);
+        }
+        if (text.matches(".*\\b(espada|sword)\\b.*")) {
+            return Optional.of(AiChore.HUNT);
+        }
+        return Optional.empty();
+    }
+
     /** The specific actions this line commits to. Pure. */
     static Map<AiActionKind, Claim> claims(String line) {
         String text = AiIntent.normalise(line);

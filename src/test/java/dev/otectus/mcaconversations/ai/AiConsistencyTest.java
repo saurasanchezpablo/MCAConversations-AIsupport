@@ -115,4 +115,19 @@ class AiConsistencyTest {
         assertTrue(body.contains("Spanish"));
         assertTrue(body.contains("\\\"message\\\""));
     }
+
+    @Test
+    void claimsOfHavingBeenGivenSomethingAreChecked() {
+        assertEquals(Optional.of(AiChore.CHOP), AiCommitment.received("¡Gracias por el hacha! Voy a talar.").get().tool());
+        assertEquals(Optional.of(AiChore.FISH), AiCommitment.received("Thanks for the fishing rod!").get().tool());
+        assertTrue(AiCommitment.received("Ya tengo el pico, vamos.").isPresent());
+        assertTrue(AiCommitment.received("Hola, ¿qué tal?").isEmpty());
+        // No axe in hand: thanking for one is a lie the game catches.
+        assertTrue(AiConsistency.receipt("¡Gracias por el hacha!", c -> false, false, "Steve").isPresent());
+        // The axe really is there: nothing to correct.
+        assertTrue(AiConsistency.receipt("¡Gracias por el hacha!", c -> c == AiChore.CHOP, false, "Steve").isEmpty());
+        // A gift thanked for: only true if something really changed hands just now.
+        assertTrue(AiConsistency.receipt("¡Gracias por el regalo!", c -> false, false, "Steve").isPresent());
+        assertTrue(AiConsistency.receipt("¡Gracias por el regalo!", c -> false, true, "Steve").isEmpty());
+    }
 }

@@ -641,3 +641,9 @@ tasks.register('verifyJarContents') {
 tasks.named('build').configure {
     dependsOn tasks.named('verifyJarContents')
 }
+
+// The in-game proofs (GameTest server only) never ship.
+tasks.named('jar').configure {
+    exclude 'dev/otectus/mcaconversations/ai/AiGameTests*'
+    exclude 'data/mcaconversations/structure/ai_field.nbt'
+}

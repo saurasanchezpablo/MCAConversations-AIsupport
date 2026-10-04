@@ -624,6 +624,25 @@ The game applies the consequences. The model only voices the reaction: an opener
 exactly what happened and how the villager feels, so the words match the consequences. Tools lent
 through the lend window are recorded as loans too, and the prompt lists what the villager holds on loan.
 
+### In-game proof (`AiGameTests`, `gradlew runGameTestServer`)
+The tests run on the GameTest server against a real MCA villager and a mock player. Only the endpoint
+is faked: it returns fixed replies. The tests check that:
+- a yes to "ve a talar" starts the work, and MCA's chore is CHOP;
+- the villager really chops: a tree loses its logs and they are gathered (4 logs in about 640 ticks on
+  the last run);
+- "Sure, I'll chop" without an axe starts no job, the line is sent back to be rewritten, a lend window
+  opens, and lending the axe starts the job;
+- "Thanks for the axe!" when no axe was given is rewritten before it is heard;
+- "dame lo que has recogido" hands the gathered logs to the player;
+- a refusal runs nothing, even when the model attached the action;
+- "toma, te doy esto" opens the gift window.
+
+The test class and its template are excluded from the jar.
+
+Receipts are checked too. A line claiming to have been given a tool ("gracias por el hacha", "ya tengo
+el pico") is checked against the villager's real inventory. A line thanking for a gift is checked
+against what really changed hands in the last minute: gift, lend window, bag or MCA gift.
+
 ## Voice (acting TTS)
 
 Villagers speak their lines aloud with acting: the emotion, what the line is for, their mood, grief,

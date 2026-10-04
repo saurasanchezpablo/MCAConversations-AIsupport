@@ -332,6 +332,9 @@ final class AiBag {
                 }
             }
         }
+        if (!lent.isEmpty() || !useful.isEmpty() || !junk.isEmpty()) {
+            AiConversations.markReceived(v, p, now);
+        }
         if (!lent.isEmpty()) {
             boolean started = AiWork.resumeIfReady(villager, player, villagerName, now);
             what.add("put a " + list(lent) + " in your bag, lent to you" + (started
