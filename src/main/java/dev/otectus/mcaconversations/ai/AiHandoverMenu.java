@@ -26,7 +26,10 @@ final class AiHandoverMenu extends ChestMenu {
 
     private final Entity villager;
     private final SimpleContainer items;
-    /** Takes the handed stacks; false when the job could not start (the stacks are then returned). */
+    /**
+     * Takes the handed stacks, shrinking each by what it keeps; false when the job could not start.
+     * Whatever is still in the stacks afterwards goes back to the player.
+     */
     private final Predicate<List<ItemStack>> onClose;
     private boolean settled;
 
@@ -68,13 +71,20 @@ final class AiHandoverMenu extends ChestMenu {
         if (handed.isEmpty()) {
             return;
         }
-        boolean started = false;
+        if (!serverPlayer.isAlive() || serverPlayer.hasDisconnected()) {
+            // Gone (dead, or leaving with the inventory already saved): no job for them, and the items
+            // land where they were, as vanilla does with any container's contents.
+            handed.forEach(stack -> serverPlayer.drop(stack, false));
+            return;
+        }
         try {
-            started = villager.isAlive() && onClose.test(handed);
-        } finally {
-            if (!started) {
-                handed.forEach(stack -> serverPlayer.getInventory().placeItemBackInInventory(stack));
+            if (villager.isAlive()) {
+                onClose.test(handed);
             }
+        } finally {
+            // Only what the job did not take, so nothing is handed back twice.
+            handed.stream().filter(stack -> !stack.isEmpty())
+                    .forEach(stack -> serverPlayer.getInventory().placeItemBackInInventory(stack));
         }
     }
 }

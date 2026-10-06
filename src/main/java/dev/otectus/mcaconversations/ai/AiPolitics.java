@@ -57,7 +57,16 @@ final class AiPolitics {
     /** Called from the village census: starts a campaign when it is time. */
     static void maintain(MinecraftServer server, ServerLevel level, int villageId, AiVillageLifeSavedData data,
                          AiVillageLifeSavedData.Census census, long now) {
-        if (!McaConversationsConfig.aiGameplayEffects() || census.residents.size() < MIN_RESIDENTS || census.electionPending()) {
+        if (!McaConversationsConfig.aiGameplayEffects() || census.residents.size() < MIN_RESIDENTS) {
+            return;
+        }
+        boolean election = AiVillageEvents.electionScheduled(data, level, villageId);
+        if (census.electionPending() && !election) {
+            // The election day was lost (never scheduled, dropped, or its world gone): call it off.
+            census.clearElection();
+            data.changed();
+        }
+        if (census.electionPending() || election) {
             return;
         }
         long today = Math.floorDiv(now, AiVillageEventType.DAY);
@@ -88,9 +97,7 @@ final class AiPolitics {
         }
         List<String> keys = new ArrayList<>(PLATFORMS.keySet());
         Collections.shuffle(keys);
-        census.candidates.clear();
-        census.candidateNames.clear();
-        census.platforms.clear();
+        census.clearElection();
         census.candidates.add(a.getUUID());
         census.candidates.add(b.getUUID());
         census.candidateNames.add(McaCompat.getVillagerName(a).orElse("?"));
@@ -98,13 +105,16 @@ final class AiPolitics {
         census.platforms.add(a.getUUID().equals(census.leader) && !census.leaderPlatform.isEmpty()
                 ? census.leaderPlatform : keys.get(0));
         census.platforms.add(keys.stream().filter(k -> !k.equals(census.platforms.get(0))).findFirst().orElse(keys.get(1)));
-        census.votes.clear();
-        census.backers.clear();
         long day = Math.max(census.nextElectionDay, today + 1);
         census.nextElectionDay = day;
         data.changed();
-        AiVillageEvents.scheduleElection(server, level, villageId, day * AiVillageEventType.DAY
-                + AiVillageEventType.ELECTION.startTime(), List.copyOf(census.candidates), List.copyOf(census.candidateNames));
+        if (AiVillageEvents.scheduleElection(server, level, villageId, day * AiVillageEventType.DAY
+                + AiVillageEventType.ELECTION.startTime(), List.copyOf(census.candidates),
+                List.copyOf(census.candidateNames)) == null) {
+            // Nowhere to hold it: no campaign either; try again in a day or so.
+            census.clearElection();
+            census.nextElectionDay = today + 1 + CAMPAIGN_DAYS;
+        }
     }
 
     /** How a voter leans between the two candidates: their votes, else their opinion of each. */
@@ -167,11 +177,7 @@ final class AiPolitics {
         census.nextElectionDay = today + TERM_DAYS;
         Map<UUID, UUID> backers = Map.copyOf(census.backers);
         UUID loserId = census.candidates.get(loser);
-        census.candidates.clear();
-        census.candidateNames.clear();
-        census.platforms.clear();
-        census.votes.clear();
-        census.backers.clear();
+        census.clearElection();
         data.changed();
 
         Component line = Component.translatable("mcaconversations.ai.event.election.won", leaderName, votes[winner],
@@ -193,7 +199,8 @@ final class AiPolitics {
                 memory.edit(leader, backer.getKey()).remember(new AiMemoryNote(playerName
                         + " campaigned for me, and I won the election.", AiImportance.HIGH), AiSentiment.STRONGLY_POSITIVE, day, cap);
                 if (player != null && leaderEntity != null && McaConversationsConfig.aiRelationshipEffects()) {
-                    AiHearts.grant(server, leaderEntity, player, "ai.election", 2, DepthClass.STANDARD, ReplayPolicy.ONCE,
+                    AiHearts.grant(server, leaderEntity, player, "ai.election", 2, DepthClass.STANDARD,
+                            ReplayPolicy.ONCE_PER_DAY,
                             0, 0, "ai.election." + event.id + "." + leader, gameNow);
                 }
             } else {
@@ -202,7 +209,8 @@ final class AiPolitics {
                 memory.edit(loserId, backer.getKey()).remember(new AiMemoryNote(playerName
                         + " stood by me in the election, even though I lost.", AiImportance.MEDIUM), AiSentiment.POSITIVE, day, cap);
                 if (player != null && loserEntity != null && McaConversationsConfig.aiRelationshipEffects()) {
-                    AiHearts.grant(server, loserEntity, player, "ai.election", 1, DepthClass.STANDARD, ReplayPolicy.ONCE,
+                    AiHearts.grant(server, loserEntity, player, "ai.election", 1, DepthClass.STANDARD,
+                            ReplayPolicy.ONCE_PER_DAY,
                             0, 0, "ai.election." + event.id + "." + loserId, gameNow);
                 }
             }

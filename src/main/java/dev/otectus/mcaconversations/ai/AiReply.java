@@ -19,10 +19,13 @@ import java.util.Optional;
  * @param delivery   how the line should be voiced, if the model said
  * @param structured false when the reply was not valid structured output and only the line survived;
  *                   an unstructured reply never has effects
+ * @param understanding the model's reading of what the player asked and what the villager answered, when
+ *                   it gave one ({@link AiUnderstanding}); empty when it did not say
  */
 public record AiReply(String dialogue, String command, AiSentiment sentiment, double confidence,
                       AiEmotion emotion, Optional<AiMemoryNote> memory, List<AiEffect> effects,
-                      Optional<AiInterjection> interjection, Optional<AiDelivery> delivery, boolean structured) {
+                      Optional<AiInterjection> interjection, Optional<AiDelivery> delivery, boolean structured,
+                      Optional<AiUnderstanding> understanding) {
 
     public AiReply {
         command = command == null ? "" : command;
@@ -31,6 +34,21 @@ public record AiReply(String dialogue, String command, AiSentiment sentiment, do
         effects = effects == null ? List.of() : List.copyOf(effects);
         interjection = interjection == null ? Optional.empty() : interjection;
         delivery = delivery == null ? Optional.empty() : delivery;
+        understanding = understanding == null ? Optional.empty() : understanding;
+    }
+
+    /** Without the model's reading of the request. */
+    public AiReply(String dialogue, String command, AiSentiment sentiment, double confidence, AiEmotion emotion,
+                   Optional<AiMemoryNote> memory, List<AiEffect> effects, Optional<AiInterjection> interjection,
+                   Optional<AiDelivery> delivery, boolean structured) {
+        this(dialogue, command, sentiment, confidence, emotion, memory, effects, interjection, delivery, structured,
+                Optional.empty());
+    }
+
+    /** This reply, with the reading of the exchange a second request made of it ({@link AiJudge}). */
+    public AiReply withUnderstanding(AiUnderstanding reading) {
+        return new AiReply(dialogue, command, sentiment, confidence, emotion, memory, effects, interjection, delivery,
+                structured, Optional.ofNullable(reading));
     }
 
     /** Without a voice delivery. */
@@ -54,6 +72,6 @@ public record AiReply(String dialogue, String command, AiSentiment sentiment, do
     /** A reply that is only a line: no judgement, no memory, no effects. */
     public static AiReply dialogueOnly(String dialogue) {
         return new AiReply(dialogue, "", AiSentiment.NEUTRAL, 0, AiEmotion.NEUTRAL, Optional.empty(),
-                List.of(), Optional.empty(), Optional.empty(), false);
+                List.of(), Optional.empty(), Optional.empty(), false, Optional.empty());
     }
 }

@@ -39,6 +39,8 @@ final class AiInitiative {
 
     static final int CHECK_INTERVAL_TICKS = 200;
     static final long PAIR_COOLDOWN_TICKS = 12_000;
+    /** How often the cooldown maps drop entries that no longer hold anyone back. */
+    static final int PRUNE_INTERVAL_TICKS = CHECK_INTERVAL_TICKS * 30;
 
     /**
      * Why a villager would come over, and how much it matters (1 small talk .. 5 pressing), and the
@@ -120,6 +122,10 @@ final class AiInitiative {
         }
         long now = server.overworld().getGameTime();
         long cooldown = McaConversationsConfig.aiAutoConversationCooldownTicks();
+        if (server.getTickCount() % PRUNE_INTERVAL_TICKS == 0) {
+            pruneStale(LAST_BY_PLAYER, now, cooldown);
+            pruneStale(LAST_BY_PAIR, now, PAIR_COOLDOWN_TICKS);
+        }
         double base = McaConversationsConfig.aiAutoConversationChance();
         double radius = McaConversationsConfig.aiAutoConversationRadius();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
@@ -129,7 +135,7 @@ final class AiInitiative {
             Optional<Entity> chosen = Optional.empty();
             Reason best = null;
             for (Entity villager : player.serverLevel().getEntities(player, player.getBoundingBox().inflate(radius),
-                    e -> e.isAlive() && McaCompat.isMcaVillager(e))) {
+                    e -> e.isAlive() && e.distanceToSqr(player) <= radius * radius && McaCompat.isMcaVillager(e))) {
                 if (!available(villager, player, now)) {
                     continue;
                 }
@@ -240,6 +246,19 @@ final class AiInitiative {
 
     private static String pairKey(UUID villager, UUID player) {
         return villager + "/" + player;
+    }
+
+    /**
+     * Drops cooldown entries at least {@code keep} ticks old (they no longer stop anything), and any
+     * from the future (a world swapped under a running server). Pure on the map it is given.
+     */
+    static void pruneStale(Map<?, Long> last, long now, long keep) {
+        last.values().removeIf(tick -> tick == null || now - tick >= keep || tick > now);
+    }
+
+    /** A player left: their own cooldown goes; pair cooldowns age out with {@link #pruneStale}. */
+    static void forgetPlayer(UUID player) {
+        LAST_BY_PLAYER.remove(player);
     }
 
     static void reset() {

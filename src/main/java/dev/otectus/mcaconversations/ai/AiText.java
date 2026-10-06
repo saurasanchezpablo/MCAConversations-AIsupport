@@ -16,8 +16,9 @@ public final class AiText {
     }
 
     /**
-     * Strips formatting codes ({@code §x}) and control characters, collapses whitespace, removes one
-     * pair of wrapping quotes, and truncates to {@code maxCodePoints} (with an ellipsis). Never null.
+     * Strips formatting codes ({@code §x}), control characters and invisible format characters (but not
+     * ZWNJ/ZWJ), collapses whitespace, removes one pair of wrapping quotes, and truncates to
+     * {@code maxCodePoints} (with an ellipsis). Never null.
      */
     public static String clean(String raw, int maxCodePoints) {
         if (raw == null) {
@@ -35,9 +36,12 @@ public final class AiText {
                 }
                 continue;
             }
-            if (Character.isWhitespace(cp) || Character.isISOControl(cp) || Character.getType(cp) == Character.FORMAT) {
+            if (Character.isWhitespace(cp) || Character.isISOControl(cp)) {
                 space = out.length() > 0;
                 continue;
+            }
+            if (Character.getType(cp) == Character.FORMAT && !joiner(cp)) {
+                continue; // invisible: bidi overrides and isolates, zero-width space, tag characters
             }
             if (space) {
                 out.append(' ');
@@ -51,6 +55,14 @@ public final class AiText {
             text = text.substring(0, end).stripTrailing() + "…";
         }
         return text;
+    }
+
+    /**
+     * The zero-width non-joiner and joiner: real text in Persian and Indic scripts and inside emoji
+     * sequences, so they are kept. Every other format character is dropped (bidi controls among them).
+     */
+    private static boolean joiner(int cp) {
+        return cp == 0x200C || cp == 0x200D;
     }
 
     private static String unquote(String text) {

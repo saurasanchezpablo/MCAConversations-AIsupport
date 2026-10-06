@@ -236,6 +236,26 @@ public final class AiLivesSavedData extends SavedData {
         return back;
     }
 
+    /**
+     * A lent item that no longer exists (worn out, burned): settled with {@code preferred} first, then
+     * with any other player who lent this villager the same thing. Returns how many were on loan.
+     */
+    int writeOffLoan(UUID villager, UUID preferred, String item, int count) {
+        int settled = preferred == null ? 0 : returnLoan(villager, preferred, item, count);
+        String prefix = villager + "/";
+        for (String k : new ArrayList<>(loans.keySet())) {
+            if (settled >= count || !k.startsWith(prefix)) {
+                continue;
+            }
+            try {
+                settled += returnLoan(villager, UUID.fromString(k.substring(prefix.length())), item, count - settled);
+            } catch (IllegalArgumentException ignored) {
+                // a malformed key is skipped
+            }
+        }
+        return settled;
+    }
+
     Map<String, Integer> loans(UUID villager, UUID player) {
         return Map.copyOf(loans.getOrDefault(key(villager, player), Map.of()));
     }
@@ -263,7 +283,10 @@ public final class AiLivesSavedData extends SavedData {
         boolean changed = dates.removeIf(d -> d.villager.equals(villager));
         changed |= betrayals.removeIf(b -> b.owner().equals(villager));
         changed |= skills.remove(villager) != null;
-        changed |= loans.keySet().removeIf(k -> k.startsWith(villager + "/"));
+        String prefix = villager + "/";
+        changed |= loans.keySet().removeIf(k -> k.startsWith(prefix));
+        changed |= childhood.keySet().removeIf(k -> k.startsWith(prefix));
+        changed |= taught.keySet().removeIf(k -> k.startsWith(prefix));
         if (changed) {
             setDirty();
         }

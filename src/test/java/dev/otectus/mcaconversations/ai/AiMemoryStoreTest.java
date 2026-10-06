@@ -138,4 +138,18 @@ class AiMemoryStoreTest {
         store.prune(100);
         assertTrue(store.get(ALICE, PLAYER_A).isEmpty());
     }
+
+    @Test
+    void villagersHoldingOpinionsAreCappedLeastRecentlyChangedFirst() {
+        AiMemoryStore store = new AiMemoryStore(2);
+        UUID carol = UUID.randomUUID();
+        store.adjustOpinion(ALICE, carol, "Carol", "warmth", 1, "kind", 0);
+        store.adjustOpinion(BOB, carol, "Carol", "warmth", 1, "kind", 0);
+        store.adjustOpinion(ALICE, carol, "Carol", "trust", 1, "honest", 1);
+        UUID dan = UUID.randomUUID();
+        store.adjustOpinion(dan, carol, "Carol", "warmth", 1, "kind", 1);
+        assertTrue(store.opinions(BOB).isEmpty(), "the villager whose opinions changed longest ago goes");
+        assertFalse(store.opinions(ALICE).isEmpty());
+        assertFalse(store.opinions(dan).isEmpty());
+    }
 }

@@ -3,6 +3,8 @@ package dev.otectus.mcaconversations.ai;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -31,10 +33,19 @@ public final class AiPromptBuilder {
         body.addProperty("model", in.model());
         JsonArray messages = new JsonArray();
         messages.add(message("system", system(in)));
+        // Strict chat templates want user and assistant turns to alternate, starting with the user: a
+        // conversation the villager opened gets a stand-in first line, and lines in a row are joined.
+        List<String[]> turns = new ArrayList<>();
         for (AiSessions.Line line : in.transcript()) {
-            messages.add(message(line.fromPlayer() ? "user" : "assistant", line.text()));
+            addTurn(turns, line.fromPlayer() ? "user" : "assistant", line.text());
         }
-        messages.add(message("user", in.playerMessage()));
+        addTurn(turns, "user", in.playerMessage());
+        if (turns.get(0)[0].equals("assistant")) {
+            turns.add(0, new String[]{"user", "[" + in.playerName() + " comes over]"});
+        }
+        for (String[] turn : turns) {
+            messages.add(message(turn[0], turn[1]));
+        }
         body.add("messages", messages);
         if (in.jsonMode()) {
             JsonObject format = new JsonObject();
@@ -119,6 +130,13 @@ public final class AiPromptBuilder {
                 .append("refuse|apologize|thank|greet|farewell|exclaim|threaten\", \"tone\": \"a few words on how it is said\", ")
                 .append("\"pace\": \"slow|normal|fast\", \"intensity\": 0.0-1.0, \"volume\": \"whisper|normal|raised\"},\n");
         sb.append(" \"effects\": [ ...zero to three of the effects below... ]");
+        if (in.actionsOffered()) {
+            sb.append(",\n \"request\": null or {\"do\": \"what ").append(player).append("'s last message asks you to do, ")
+                    .append("as one of the action names below\", ...the same details that action takes..., ")
+                    .append("\"answer\": \"yes|no|later\"},\n");
+            sb.append(" \"received\": null, or the minecraft:item_id (or \"something\") your message says ").append(player)
+                    .append(" has just given or lent you");
+        }
         if (in.bystanders()) {
             sb.append(",\n \"interjection\": null or {\"speaker\": \"exact name of someone close enough to hear\", ")
                     .append("\"message\": \"one short line they say, in their own voice\"}");
@@ -139,6 +157,21 @@ public final class AiPromptBuilder {
         for (String offer : in.offers()) {
             sb.append("- ").append(offer).append('\n');
         }
+        if (in.actionsOffered()) {
+            sb.append("Understanding what ").append(player).append(" wants (request):\n")
+                    .append("- Read the meaning of ").append(player).append("'s last message, in whatever language and ")
+                    .append("words it is written, together with the conversation so far. It does not have to be an order: ")
+                    .append("a question (\"could you...?\"), a hint (\"I could really use some wood\"), handing you ")
+                    .append("something (\"here, this is for you\"), asking for something back, or a yes to something you ")
+                    .append("offered earlier all count.\n")
+                    .append("- request.do is the action that would carry it out, with its details (task, amount, item, ")
+                    .append("place, build, helpers). Asking for something you carry, or for something they lent you back, ")
+                    .append("is give with that item. Wanting to hand you something is gift.\n")
+                    .append("- request.answer is what your message says: yes (you do it now), no (you refuse or cannot), ")
+                    .append("later (another time). null when they asked for nothing you could do.\n")
+                    .append("- received: only when your message thanks them for, or mentions, something they just gave ")
+                    .append("or lent you; otherwise null. Never claim to have been given what you were not.\n");
+        }
         sb.append("Your words and your deeds must agree. If you say you will do something, include its action. ")
                 .append("If an action is not listed above, you cannot do it right now: do not pretend you will, say so ")
                 .append("honestly or ask for what you would need. The game checks, and a line that promises what cannot ")
@@ -152,8 +185,10 @@ public final class AiPromptBuilder {
                 .append("sarcastic.\n");
         sb.append("- memory: only for something ").append(villager).append(" would still remember days later ")
                 .append("(a confession, a promise, a kindness, an insult, a personal fact). Otherwise null.\n");
-        sb.append("- effects: usually empty. Add at most one or two when the message clearly affected trust, ")
-                .append("respect, warmth or tension between you.\n");
+        sb.append("- effects: feelings (disposition) usually none; add one or two only when the message clearly ")
+                .append("affected trust, respect, warmth or tension between you. Actions: whenever you agree to do ")
+                .append("something, or decide to give ").append(player).append(" something you carry, include the ")
+                .append("action, whatever language you speak.\n");
         if (!in.commands().isEmpty()) {
             sb.append("Valid commands (only use one when ").append(player).append(" asks for it):\n");
             for (AiPromptInput.CommandOption command : in.commands()) {
@@ -195,6 +230,16 @@ public final class AiPromptBuilder {
             return "yesterday";
         }
         return String.format(Locale.ROOT, "%d days ago", days);
+    }
+
+    private static void addTurn(List<String[]> turns, String role, String text) {
+        String content = text == null ? "" : text;
+        if (!turns.isEmpty() && turns.get(turns.size() - 1)[0].equals(role)) {
+            String[] last = turns.get(turns.size() - 1);
+            last[1] = last[1] + "\n" + content;
+        } else {
+            turns.add(new String[]{role, content});
+        }
     }
 
     private static JsonObject message(String role, String content) {

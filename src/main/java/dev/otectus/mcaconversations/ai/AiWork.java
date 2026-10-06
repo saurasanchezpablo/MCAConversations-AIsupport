@@ -74,8 +74,9 @@ final class AiWork {
     static final class Group {
         final ServerBossEvent bar;
         final AiChore chore;
-        final int goal;
-        final int size;
+        /** Both set again once it is known who actually got going. */
+        int goal;
+        int size;
 
         Group(ServerBossEvent bar, AiChore chore, int goal, int size) {
             this.bar = bar;
@@ -165,6 +166,31 @@ final class AiWork {
         return false;
     }
 
+    /** The task an item is the tool for ({@code minecraft:iron_axe} is for chopping), if it is a tool. */
+    static java.util.Optional<AiChore> toolFor(String itemId) {
+        if (itemId == null || itemId.isEmpty() || itemId.startsWith("#") || !AiPromises.itemExists(itemId)) {
+            return java.util.Optional.empty();
+        }
+        net.minecraft.resources.ResourceLocation id = net.minecraft.resources.ResourceLocation.tryParse(itemId);
+        ItemStack stack = id == null ? ItemStack.EMPTY
+                : new ItemStack(net.minecraft.core.registries.BuiltInRegistries.ITEM.get(id));
+        for (AiChore chore : AiChore.values()) {
+            if (!stack.isEmpty() && tool(chore).test(stack)) {
+                return java.util.Optional.of(chore);
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
+    /** Whether the villager has this item (or an item of this {@code #tag}) in hand or in its inventory. */
+    static boolean holds(Entity villager, String itemRef) {
+        if (villager instanceof Mob mob && AiPromises.matches(itemRef, mob.getMainHandItem())) {
+            return true;
+        }
+        Container inventory = McaHandles.inventory(villager);
+        return inventory != null && slotOf(inventory, s -> AiPromises.matches(itemRef, s)) >= 0;
+    }
+
     static boolean hasTool(Entity villager, AiChore chore) {
         Container inventory = McaHandles.inventory(villager);
         Predicate<ItemStack> tool = tool(chore);
@@ -205,24 +231,38 @@ final class AiWork {
 
     /**
      * Sends several villagers to work together for one player. The total is split between those who
-     * have the tool; the others are returned so they can say why they cannot. One bar shows the total.
+     * have the tool; the others, and any MCA would not put on the chore, are returned so they can say
+     * why they cannot. One bar shows the total, once anyone has started.
      */
     static List<Entity> startGroup(List<Entity> villagers, ServerPlayer player, AiChore chore, int total, long now) {
         List<Entity> able = villagers.stream().filter(v -> hasTool(v, chore)).toList();
-        List<Entity> unable = villagers.stream().filter(v -> !hasTool(v, chore)).toList();
+        List<Entity> unable = new java.util.ArrayList<>(villagers.stream().filter(v -> !hasTool(v, chore)).toList());
         if (able.isEmpty()) {
             return unable;
         }
         ServerBossEvent bar = new ServerBossEvent(groupTitle(able.size(), chore, 0, total), BossEvent.BossBarColor.GREEN,
                 total > 0 ? BossEvent.BossBarOverlay.NOTCHED_10 : BossEvent.BossBarOverlay.PROGRESS);
         bar.setProgress(0f);
-        bar.addPlayer(player);
         Group group = new Group(bar, chore, total, able.size());
+        int started = 0;
+        int goal = 0;
         for (int i = 0; i < able.size(); i++) {
             // An even share, the remainder to the first ones; 0 stays open-ended for everyone.
             int share = share(total, able.size(), i);
             Entity v = able.get(i);
-            start(v, player, chore, share, McaCompat.getVillagerName(v).orElse(v.getName().getString()), group, now);
+            if (start(v, player, chore, share, McaCompat.getVillagerName(v).orElse(v.getName().getString()), group, now)) {
+                started++;
+                goal += share;
+            } else {
+                unable.add(v);
+            }
+        }
+        if (started > 0) {
+            // The bar counts only those who got going, toward the shares they took on.
+            group.size = started;
+            group.goal = goal;
+            bar.setName(groupTitle(started, chore, 0, goal));
+            bar.addPlayer(player);
         }
         return unable;
     }
@@ -272,19 +312,29 @@ final class AiWork {
      */
     static boolean resumeIfReady(Entity villager, ServerPlayer player, String villagerName, long now) {
         Pending pending = PENDING.get(villager.getUUID());
-        if (pending == null || !pending.player().equals(player.getUUID()) || now > pending.until()) {
+        if (pending == null) {
+            return false;
+        }
+        if (now > pending.until()) {
             PENDING.remove(villager.getUUID());
             return false;
         }
-        if (!hasTool(villager, pending.chore())) {
+        // Someone else handing something over leaves the request standing for the one who made it.
+        if (!pending.player().equals(player.getUUID()) || !hasTool(villager, pending.chore())) {
             return false;
         }
         PENDING.remove(villager.getUUID());
         return start(villager, player, pending.chore(), pending.amount(), villagerName, now);
     }
 
-    static Optional<AiChore> awaiting(UUID villager) {
-        return Optional.ofNullable(PENDING.get(villager)).map(Pending::chore);
+    /** The task the villager is still waiting for a tool for, if the request has not lapsed by {@code now}. */
+    static Optional<AiChore> awaiting(UUID villager, long now) {
+        Pending pending = PENDING.get(villager);
+        if (pending != null && now > pending.until()) {
+            PENDING.remove(villager);
+            return Optional.empty();
+        }
+        return Optional.ofNullable(pending).map(Pending::chore);
     }
 
     /**
@@ -365,6 +415,9 @@ final class AiWork {
     // --- every tick --------------------------------------------------------------------------------
 
     static void tick(MinecraftServer server) {
+        if (!PENDING.isEmpty() && server.getTickCount() % 5 == 0) {
+            prunePending(server, server.overworld().getGameTime());
+        }
         if (JOBS.isEmpty()) {
             return;
         }
@@ -376,6 +429,8 @@ final class AiWork {
                 ServerPlayer player = server.getPlayerList().getPlayer(job.player);
                 Entity villager = player == null ? null : player.serverLevel().getEntity(job.villager);
                 if (player == null || villager == null || !villager.isAlive()) {
+                    // Without a player there is no one to send MCA's "stopworking" as (it needs one); a miner
+                    // then stays on the prospecting chore, which has no task, until given another order.
                     it.remove();
                     release(job);
                     continue;
@@ -617,14 +672,16 @@ final class AiWork {
             return;
         }
         ItemStack tool = villager.getMainHandItem();
+        Container toolInventory = null;
         if (!(tool.getItem() instanceof PickaxeItem)) {
-            Container inventory = McaHandles.inventory(villager);
-            int slot = inventory == null ? -1 : slotOf(inventory, tool(AiChore.MINE));
+            // The pickaxe is used where it lies in the bag, never moved: putting the same stack in the hand
+            // would share it between two slots (and duplicate it on save) and drop what the hand held.
+            toolInventory = McaHandles.inventory(villager);
+            int slot = toolInventory == null ? -1 : slotOf(toolInventory, tool(AiChore.MINE));
             if (slot < 0) {
                 return; // progress() sees MCA still on the chore; the bar simply stalls until given a pickaxe
             }
-            villager.setItemInHand(InteractionHand.MAIN_HAND, inventory.getItem(slot));
-            tool = villager.getMainHandItem();
+            tool = toolInventory.getItem(slot);
         }
         BlockState current = job.target == null ? null : level.getBlockState(job.target);
         boolean stillThere = job.target != null && (job.stairTarget ? diggable(level, job.target, current)
@@ -685,21 +742,31 @@ final class AiWork {
         }
         BlockState state = level.getBlockState(target);
         Container inventory = McaHandles.inventory(villager);
-        for (ItemStack drop : Block.getDrops(state, level, target, level.getBlockEntity(target), villager, tool)) {
-            ItemStack rest = inventory instanceof net.minecraft.world.SimpleContainer simple ? simple.addItem(drop) : drop;
-            if (!rest.isEmpty()) {
-                level.addFreshEntity(new ItemEntity(level, villager.getX(), villager.getY() + 0.5, villager.getZ(), rest));
-            }
-        }
         int yielded = 0;
+        // One roll of the loot table: what is counted is exactly what is stored.
         for (ItemStack drop : Block.getDrops(state, level, target, level.getBlockEntity(target), villager, tool)) {
             if (yieldOf(AiChore.MINE).test(drop)) {
                 yielded += drop.getCount();
             }
+            ItemStack rest = inventory == null ? drop : AiErrands.insert(inventory, drop);
+            if (!rest.isEmpty()) {
+                level.addFreshEntity(new ItemEntity(level, villager.getX(), villager.getY() + 0.5, villager.getZ(), rest));
+            }
+        }
+        if (inventory != null) {
+            inventory.setChanged();
         }
         level.destroyBlockProgress(villager.getId(), target, -1);
         level.destroyBlock(target, false, villager);
+        String toolId = String.valueOf(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(tool.getItem()));
         tool.hurtAndBreak(1, villager, EquipmentSlot.MAINHAND);
+        if (toolInventory != null) {
+            toolInventory.setChanged();
+        }
+        if (tool.isEmpty() && level.getServer() != null) {
+            // A lent pickaxe worn out on the job is gone for good: nobody can take it back now.
+            AiLivesSavedData.get(level.getServer()).writeOffLoan(villager.getUUID(), job.player, toolId, 1);
+        }
         job.mined += yielded; // dirt dug on the way down is not what was asked for
         job.target = null;
         job.digTicks = 0;
@@ -733,6 +800,33 @@ final class AiWork {
         List<Job> gone = JOBS.values().stream().filter(job -> job.player.equals(player)).toList();
         gone.forEach(job -> JOBS.remove(job.villager));
         gone.forEach(job -> job.bar.removeAllPlayers());
+    }
+
+    /**
+     * As {@link #forgetPlayer(UUID)}, while the player is still here to send MCA's command as: a miner is
+     * taken off the prospecting chore, which no MCA task would ever end.
+     */
+    static void forgetPlayer(ServerPlayer player) {
+        for (Job job : JOBS.values()) {
+            if (job.player.equals(player.getUUID()) && job.chore == AiChore.MINE && job.phase == Phase.WORKING) {
+                Entity villager = AiErrands.find(player.getServer(), job.villager);
+                if (villager != null && villager.isAlive()) {
+                    McaHandles.runInteraction(villager, player, "stopworking");
+                }
+            }
+        }
+        forgetPlayer(player.getUUID());
+    }
+
+    /** Drops tool requests that lapsed, or whose villager has died. */
+    private static void prunePending(MinecraftServer server, long now) {
+        PENDING.entrySet().removeIf(e -> {
+            if (now > e.getValue().until()) {
+                return true;
+            }
+            Entity villager = AiErrands.find(server, e.getKey());
+            return villager != null && !villager.isAlive();
+        });
     }
 
     static void reset() {

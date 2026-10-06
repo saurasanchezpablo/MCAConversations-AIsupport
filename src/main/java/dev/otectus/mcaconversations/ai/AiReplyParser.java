@@ -64,25 +64,106 @@ public final class AiReplyParser {
         if (content == null || content.isBlank()) {
             return Optional.empty();
         }
-        String text = FENCE.matcher(content).replaceAll("").strip();
-        int start = text.indexOf('{');
-        if (start < 0) {
+        String text = withoutThinking(FENCE.matcher(content).replaceAll("")).strip();
+        if (text.isEmpty()) {
+            return Optional.empty();
+        }
+        if (text.indexOf('{') < 0) {
             return line(text);
         }
-        int end = text.lastIndexOf('}');
-        if (end > start) {
-            JsonObject json = parseObject(text.substring(start, end + 1));
-            if (json != null) {
-                Optional<AiReply> structured = fromJson(json);
-                if (structured.isPresent()) {
-                    return structured;
-                }
+        for (JsonObject json : objects(text)) {
+            Optional<AiReply> structured = fromJson(json);
+            if (structured.isPresent()) {
+                return structured;
             }
         }
         // Broken or truncated JSON: salvage the line if the message field is recognisable, never the
         // effects, and never the raw JSON itself as something a villager says.
         Matcher m = MESSAGE_FIELD.matcher(text);
         return m.find() ? line(unescape(m.group(1))) : Optional.empty();
+    }
+
+    private static final Pattern THINKING = Pattern.compile("(?is)<(think|thinking|reasoning)>.*?</\\1>");
+    private static final Pattern THINKING_END = Pattern.compile("(?is)^.*</(think|thinking|reasoning)>");
+    private static final Pattern THINKING_OPEN = Pattern.compile("(?is)<(think|thinking|reasoning)>.*$");
+
+    /**
+     * The text without a reasoning model's thinking ({@code <think>...</think>}): a draft in there must
+     * never be taken for the reply, nor spoken. An unclosed block (cut off) is dropped to the end; text
+     * before a dangling closing tag is dropped too.
+     */
+    static String withoutThinking(String text) {
+        String out = THINKING.matcher(text).replaceAll("");
+        out = THINKING_END.matcher(out).replaceAll("");
+        return THINKING_OPEN.matcher(out).replaceAll("");
+    }
+
+    /**
+     * Every complete JSON object in the text, in order, found by a scan that respects strings: prose
+     * around the reply, or braces in a note after it, do not break it.
+     */
+    static List<JsonObject> objects(String text) {
+        List<JsonObject> out = new ArrayList<>();
+        int i = 0;
+        while (i < text.length() && out.size() < 8) {
+            int start = text.indexOf('{', i);
+            if (start < 0) {
+                break;
+            }
+            int end = matchingBrace(text, start);
+            if (end < 0) {
+                break; // unbalanced to the end: nothing complete from here on
+            }
+            JsonObject json = parseObject(text.substring(start, end + 1));
+            if (json != null) {
+                out.add(json);
+                i = end + 1;
+            } else {
+                i = start + 1;
+            }
+        }
+        return out;
+    }
+
+    private static int matchingBrace(String text, int start) {
+        int depth = 0;
+        boolean inString = false;
+        for (int i = start; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (inString) {
+                if (c == '\\') {
+                    i++;
+                } else if (c == '"') {
+                    inString = false;
+                }
+            } else if (c == '"') {
+                inString = true;
+            } else if (c == '{') {
+                depth++;
+            } else if (c == '}' && --depth == 0) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * A reading of an exchange on its own ({@link AiJudge}): {@code {"request": ..., "received": ...}}, where
+     * {@code null} fields mean "nothing asked, nothing received". Anything without either field is empty,
+     * so the caller knows the reading failed.
+     */
+    public static Optional<AiUnderstanding> parseUnderstanding(String content) {
+        if (content == null || content.isBlank()) {
+            return Optional.empty();
+        }
+        String text = withoutThinking(FENCE.matcher(content).replaceAll("")).strip();
+        for (JsonObject json : objects(text)) {
+            Optional<AiUnderstanding> reading = understanding(json);
+            if (reading.isPresent()) {
+                return reading;
+            }
+        }
+        return Optional.empty(); // neither field anywhere: the endpoint did not do what it was asked
     }
 
     private static Optional<AiReply> line(String raw) {
@@ -131,7 +212,58 @@ public final class AiReplyParser {
             }
         }
         return Optional.of(new AiReply(dialogue, command, sentiment, confidence, emotion, memory, effects,
-                interjection, delivery, true));
+                interjection, delivery, true, understanding(json)));
+    }
+
+    /**
+     * The model's reading of the exchange: {@code "request"} (what the player asked for, as an action with
+     * its details, and {@code "answer"}) and {@code "received"} (what the villager's line says they were
+     * given). Empty when the model wrote neither field, so the caller knows it has to find out otherwise.
+     */
+    static Optional<AiUnderstanding> understanding(JsonObject json) {
+        boolean hasRequest = json.has("request") || json.has("player_request");
+        boolean hasReceived = json.has("received");
+        if (!hasRequest && !hasReceived) {
+            return Optional.empty();
+        }
+        JsonElement element = json.has("request") ? json.get("request") : json.get("player_request");
+        Optional<AiActionKind> asked = Optional.empty();
+        Optional<AiEffect.Action> request = Optional.empty();
+        AiUnderstanding.Answer answer = AiUnderstanding.Answer.byKey(string(json, "answer").orElse(null));
+        if (element != null && element.isJsonObject()) {
+            JsonObject object = element.getAsJsonObject();
+            asked = string(object, "do").or(() -> string(object, "action")).flatMap(AiActionKind::byKey);
+            if (asked.isPresent()) {
+                JsonObject action = object.deepCopy();
+                action.addProperty("type", AiEffect.Action.TYPE);
+                request = parseEffect(action).filter(AiEffect.Action.class::isInstance).map(AiEffect.Action.class::cast);
+            }
+            if (object.has("answer")) {
+                answer = AiUnderstanding.Answer.byKey(string(object, "answer").orElse(null));
+            }
+        } else if (element != null && element.isJsonPrimitive()) {
+            asked = AiActionKind.byKey(element.getAsString()); // "request": "follow"
+        }
+        return Optional.of(new AiUnderstanding(asked, request, asked.isEmpty() ? AiUnderstanding.Answer.NONE : answer,
+                received(json.get("received"))));
+    }
+
+    /** An item id, {@link AiUnderstanding#SOMETHING}, or empty for "nothing". */
+    private static Optional<String> received(JsonElement element) {
+        if (element == null || !element.isJsonPrimitive()) {
+            return Optional.empty();
+        }
+        String raw = element.getAsString().trim().toLowerCase(Locale.ROOT);
+        if (raw.isEmpty() || raw.equals("none") || raw.equals("nothing") || raw.equals("null") || raw.equals("false")) {
+            return Optional.empty();
+        }
+        if (raw.equals("true") || raw.equals("something") || raw.equals("gift") || raw.equals("a gift")
+                || raw.equals("present")) {
+            return Optional.of(AiUnderstanding.SOMETHING);
+        }
+        JsonObject holder = new JsonObject();
+        holder.addProperty("item", raw);
+        return Optional.of(itemRef(holder).filter(i -> !i.startsWith("#")).orElse(AiUnderstanding.SOMETHING));
     }
 
     private static Optional<AiMemoryNote> memory(JsonElement element) {

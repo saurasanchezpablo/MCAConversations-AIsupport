@@ -161,8 +161,14 @@ final class AiBag {
         return null;
     }
 
+    /**
+     * How items are told apart between the two looks at the bag. A tool, weapon or armour piece is known
+     * by its item alone: it wears while the screen is open (the villager keeps working), and a changed
+     * damage value must not read as one taken and another put in.
+     */
     private static String key(ItemStack stack) {
-        return BuiltInRegistries.ITEM.getKey(stack.getItem()) + "#" + stack.getComponentsPatch().hashCode();
+        String id = String.valueOf(BuiltInRegistries.ITEM.getKey(stack.getItem()));
+        return stack.isDamageableItem() ? id : id + "#" + stack.getComponentsPatch().hashCode();
     }
 
     private static Map<String, ItemStack> contents(Container inventory) {

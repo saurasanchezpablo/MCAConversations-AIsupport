@@ -22,7 +22,9 @@ public final class HttpAiTransport implements AiTransport {
     private static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(2, new DaemonFactory());
     private static final HttpClient CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
-            .followRedirects(HttpClient.Redirect.NORMAL)
+            // Never follow: a 301/302 would silently turn the POST into a bodiless GET (and could carry
+            // the bearer token to wherever it points). A redirect is reported as http_3xx instead.
+            .followRedirects(HttpClient.Redirect.NEVER)
             .executor(EXECUTOR)
             .build();
 
@@ -41,10 +43,15 @@ public final class HttpAiTransport implements AiTransport {
             return CompletableFuture.completedFuture(AiHttpResult.failed("invalid_endpoint"));
         }
         return CLIENT.sendAsync(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
-                .thenApply(response -> AiHttpResult.parse(response.statusCode(), response.body()))
+                .thenApply(response -> result(response.statusCode(), response.body()))
                 // The request timeout bounds waiting for headers; this bounds the whole exchange.
                 .orTimeout(timeout.toMillis() + 2_000, java.util.concurrent.TimeUnit.MILLISECONDS)
                 .exceptionally(t -> AiHttpResult.failed(isTimeout(t) ? "timeout" : "network_error"));
+    }
+
+    /** A redirect is an error of its own, whatever its body says; anything else is parsed. */
+    static AiHttpResult result(int status, String body) {
+        return status >= 300 && status < 400 ? AiHttpResult.failed("http_" + status) : AiHttpResult.parse(status, body);
     }
 
     private static boolean isTimeout(Throwable t) {

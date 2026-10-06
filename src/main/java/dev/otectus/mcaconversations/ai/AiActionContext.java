@@ -231,7 +231,7 @@ final class AiActionContext {
                     + "it; store = put what you carry into the nearby chest; breed = feed the animals nearby so they breed; "
                     + "cook = cook or smelt something for " + playerName + " (roast meat, smelt iron...): a window opens where "
                     + "they put it and any fuel, then you take it to the furnace and bring it back. "
-                    + "Do not use one the player did not ask for.");
+                    + "Do not use one the player did not ask for, except give when you choose to give them something of yours.");
             if (actions.contains(AiActionKind.GUIDE)) {
                 offers.add("{\"type\": \"action\", \"do\": \"guide|wait_at\", \"place\": one of "
                         + villagePlaces.stream().map(p -> "\"" + p + "\"").collect(Collectors.joining(", "))
@@ -269,12 +269,14 @@ final class AiActionContext {
             }
             if (actions.contains(AiActionKind.GIVE)) {
                 offers.add("{\"type\": \"action\", \"do\": \"give\", \"item\": \"all\" or \"minecraft:item_id\", "
-                        + "\"amount\": 1-64} when " + playerName + " asks for what you gathered or for something you carry "
+                        + "\"amount\": 1-64} when " + playerName + " asks for what you gathered or for something you carry, "
+                        + "wants back something they lent you, or when you decide to give them something of yours "
                         + "(\"all\" = everything you gathered; if you are working for them you stop and bring it). You carry: "
                         + String.join(", ", carriedIds(inventory)));
             }
         } else if (grudge) {
-            offers.add("{\"type\": \"action\", \"do\": \"move|go_home|stop_work\"} only; you do no favours while hurt");
+            offers.add("{\"type\": \"action\", \"do\": \"move|go_home|stop_work|gift\"} only (gift = " + playerName
+                    + " wants to give you something; you may accept it); you do no favours while hurt");
         }
         return new Snapshot(actions.stream().map(AiActionKind::key).collect(Collectors.toSet()), chores, sections, offers,
                 helpers);

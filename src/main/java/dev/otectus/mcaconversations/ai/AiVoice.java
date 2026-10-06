@@ -65,17 +65,8 @@ final class AiVoice {
         }
     }
 
-    /** The language to ask the model to reply in, by name. */
+    /** The language to ask the model to reply in, by name ("German", "Spanish (Mexico)"), or null if unknown. */
     static String languageName(String code) {
-        if (code.startsWith("es")) {
-            return "Spanish";
-        }
-        if (code.startsWith("pt")) {
-            return "Portuguese";
-        }
-        if (code.startsWith("en")) {
-            return "English";
-        }
-        return null;
+        return dev.otectus.mcaconversations.voice.GameLanguage.name(code);
     }
 }

@@ -203,7 +203,7 @@ final class AiThreats {
         }
         long day = AffectionMath.dayOf(gameNow);
         AiHearts.Grant grant = AiHearts.grant(server, villager, player, "ai.hero", HERO_HEARTS, DepthClass.STANDARD,
-                ReplayPolicy.ONCE, 0, 0, "ai.hero." + day + "." + villager.getUUID(), gameNow);
+                ReplayPolicy.ONCE_PER_DAY, 0, 0, "ai.hero." + day + "." + villager.getUUID(), gameNow);
         if (grant.granted() > 0) {
             AiMemorySavedData.get(server).edit(villager.getUUID(), player.getUUID()).remember(new AiMemoryNote(
                     player.getName().getString() + " helped save our village from the raid.", AiImportance.HIGH),

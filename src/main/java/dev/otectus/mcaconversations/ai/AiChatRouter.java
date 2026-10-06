@@ -49,8 +49,9 @@ public final class AiChatRouter {
         if (player.isSpectator() || !player.isAlive()) {
             return Optional.empty();
         }
+        // The box is only the broad phase: its corners reach ~42 blocks, past where a reply is heard.
         List<Entity> near = player.serverLevel().getEntities(player, player.getBoundingBox().inflate(NAMED_RANGE),
-                e -> e.isAlive() && McaCompat.isMcaVillager(e));
+                e -> e.isAlive() && e.distanceToSqr(player) <= NAMED_RANGE * NAMED_RANGE && McaCompat.isMcaVillager(e));
         Comparator<Entity> nearest = Comparator.comparingDouble(e -> e.distanceToSqr(player));
         Optional<Entity> named = near.stream()
                 .filter(e -> McaCompat.getVillagerName(e).map(n -> AiAddressing.mentions(message, n)).orElse(false))

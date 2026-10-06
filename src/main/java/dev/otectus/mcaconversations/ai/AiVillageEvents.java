@@ -36,6 +36,7 @@ import net.minecraft.world.entity.ai.memory.MemoryStatus;
 import net.minecraft.world.entity.ai.memory.WalkTarget;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.Heightmap;
 
 import java.util.ArrayList;
@@ -91,6 +92,10 @@ final class AiVillageEvents {
             "a rude remark at the well", "a borrowed axe returned broken", "the noise at night",
             "a game of cards that ended badly", "whose turn it was to fetch water", "a broken promise to help with the harvest",
             "some unkind gossip");
+    /** The label of a gathering held in the middle of the village (no fitting building). */
+    private static final String SQUARE = "village square";
+    /** Shown to players: {@code mcaconversations.ai.event.quarrel.cause.N} is {@link #QUARREL_CAUSES}{@code [N - 1]}. */
+    private static final String QUARREL_CAUSE_KEY = "mcaconversations.ai.event.quarrel.cause.";
 
     private record Village(ServerLevel level, int id) {
         String key() {
@@ -130,15 +135,13 @@ final class AiVillageEvents {
             return;
         }
         if (!enabled()) {
-            if (!LIVE.isEmpty()) {
-                reset();
-            }
+            idle(server);
             return;
         }
         AiVillageLifeSavedData data = AiVillageLifeSavedData.get(server);
         long now = server.overworld().getDayTime();
         if (tick % CENSUS_INTERVAL == 0) {
-            data.prune(now);
+            data.prune(now, AffectionMath.dayOf(server.overworld().getGameTime()));
             for (Village village : activeVillages(server)) {
                 try {
                     census(server, village, data, now);
@@ -223,6 +226,7 @@ final class AiVillageEvents {
             }
         }
         changed |= census.residents.retainAll(residents.keySet());
+        changed |= census.partners.keySet().retainAll(residents.keySet());
         for (Entity villager : loaded) {
             UUID partner = McaCompat.getPartnerUuid(villager).orElse(AiVillageLifeSavedData.NOBODY);
             UUID before = census.partners.put(villager.getUUID(), partner);
@@ -286,7 +290,7 @@ final class AiVillageEvents {
         AiSmallTalk.drift(server, McaCompat.loadedVillageResidents(village.level(), village.id()),
                 AffectionMath.dayOf(server.overworld().getGameTime()));
         String platform = AiPolitics.platform(census);
-        boolean busy = data.events().stream().anyMatch(e -> e.villageId == village.id() && !e.ended
+        boolean busy = data.events().stream().anyMatch(e -> in(e, village.level(), village.id()) && !e.ended
                 && e.type != AiVillageEventType.QUARREL && Math.floorDiv(e.start, AiVillageEventType.DAY) == today);
         ThreadLocalRandom random = ThreadLocalRandom.current();
         double chance = McaConversationsConfig.aiVillageEventChance();
@@ -339,6 +343,17 @@ final class AiVillageEvents {
 
     static String villageKey(ServerLevel level, int villageId) {
         return new Village(level, villageId).key();
+    }
+
+    /** Whether the event is in this village: MCA numbers villages per dimension, so both must match. */
+    static boolean in(AiVillageEvent event, Level level, int villageId) {
+        return event.villageId == villageId && event.dimension.equals(level.dimension().location().toString());
+    }
+
+    /** Whether this village has an election day still to come or under way. */
+    static boolean electionScheduled(AiVillageLifeSavedData data, ServerLevel level, int villageId) {
+        return data.events().stream().anyMatch(e -> e.type == AiVillageEventType.ELECTION && !e.ended
+                && in(e, level, villageId));
     }
 
     /** After an attack: the village meets the next morning to talk it over (once). */
@@ -411,23 +426,38 @@ final class AiVillageEvents {
         } else {
             spot = spot(level, village.id(), type);
             if (spot.isEmpty() && fallback != null) {
-                spot = Optional.of(new Spot(ground(level, fallback), "village square"));
+                spot = Optional.of(new Spot(ground(level, fallback), SQUARE));
             }
         }
         if (spot.isEmpty()) {
             return null;
+        }
+        if (organizer != null && !villager(level, village.id(), organizer)) {
+            organizer = null; // a player in the family tree (a wedding, a birth): a villager organises instead
         }
         if (organizer == null && type != AiVillageEventType.QUARREL) {
             organizer = organiser(level, village.id(), type, subjects).orElse(null);
         }
         AiVillageEvent event = new AiVillageEvent(data.nextId(), type, level.dimension().location().toString(), village.id(),
                 spot.get().pos(), spot.get().label(), start, start + type.duration(), organizer, subjects, names, cause);
-        data.add(event);
+        for (AiVillageEvent evicted : data.add(event)) {
+            drop(server, evicted.id);
+        }
         if (McaConversationsConfig.debugAi()) {
             McaConversations.LOGGER.info("[ai] village {} plans {} ({}), {} at {}", village.id(), type.key(), event.describe(),
                     event.when(server.overworld().getDayTime()), spot.get().pos());
         }
         return event;
+    }
+
+    /** Whether {@code id} is one of the village's MCA villagers (and not, say, a player married into it). */
+    private static boolean villager(ServerLevel level, int villageId, UUID id) {
+        if (level.getServer().getPlayerList().getPlayer(id) != null) {
+            return false;
+        }
+        Entity entity = level.getEntity(id);
+        return entity != null ? McaCompat.isMcaVillager(entity)
+                : McaCompat.villageResidentNames(level, villageId).containsKey(id);
     }
 
     private static Optional<UUID> organiser(ServerLevel level, int villageId, AiVillageEventType type, List<UUID> subjects) {
@@ -467,7 +497,7 @@ final class AiVillageEvents {
             z += pos.getZ();
         }
         int n = buildings.size();
-        return Optional.of(new Spot(ground(level, new BlockPos((int) (x / n), (int) (y / n), (int) (z / n))), "village square"));
+        return Optional.of(new Spot(ground(level, new BlockPos((int) (x / n), (int) (y / n), (int) (z / n))), SQUARE));
     }
 
     /** A standable spot at or near {@code pos}: floor below, room for a villager above. */
@@ -664,14 +694,18 @@ final class AiVillageEvents {
     }
 
     private static void release(ServerLevel level, Live live) {
-        for (UUID id : live.slots.keySet()) {
+        release(level, live.slots.keySet());
+        live.slots.clear();
+    }
+
+    private static void release(ServerLevel level, Set<UUID> ids) {
+        for (UUID id : ids) {
             if (level.getEntity(id) instanceof Villager villager) {
                 Brain<Villager> brain = villager.getBrain();
                 brain.eraseMemory(MemoryModuleType.WALK_TARGET);
                 brain.eraseMemory(MemoryModuleType.LOOK_TARGET);
             }
         }
-        live.slots.clear();
     }
 
     /** Music and dancing at a festival, hearts at a wedding, quiet at a funeral. */
@@ -699,7 +733,8 @@ final class AiVillageEvents {
     private static void chatter(ServerLevel level, AiVillageEvent event, Entity speaker) {
         String name = McaCompat.getVillagerName(speaker).orElse(speaker.getName().getString());
         MutableComponent line = Component.literal(name + ": ").withStyle(ChatFormatting.YELLOW)
-                .append(AiLines.variant("event." + event.type.key() + ".chatter", event.place, event.name(0), event.name(1))
+                .append(AiLines.variant("event." + event.type.key() + ".chatter", placeName(event.place), event.name(0),
+                        event.name(1))
                         .withStyle(ChatFormatting.WHITE));
         for (ServerPlayer player : level.players()) {
             if (player.distanceTo(speaker) <= 16) {
@@ -742,12 +777,18 @@ final class AiVillageEvents {
         level.sendParticles(ParticleTypes.ANGRY_VILLAGER, speaker.getX(), speaker.getY() + speaker.getBbHeight() + 0.3,
                 speaker.getZ(), 2, 0.2, 0.1, 0.2, 0.0);
         MutableComponent line = Component.literal(speakerName + ": ").withStyle(ChatFormatting.RED)
-                .append(AiLines.variant("event.quarrel.shout", other, event.cause).withStyle(ChatFormatting.WHITE));
+                .append(AiLines.variant("event.quarrel.shout", other, cause(event.cause)).withStyle(ChatFormatting.WHITE));
         for (ServerPlayer player : level.players()) {
             if (player.distanceTo(speaker) <= 24) {
                 player.displayClientMessage(line, false);
             }
         }
+    }
+
+    /** A quarrel's cause as players read it: translated when it is one of ours, else as recorded. Pure. */
+    static Component cause(String cause) {
+        int index = QUARREL_CAUSES.indexOf(cause);
+        return index >= 0 ? Component.translatable(QUARREL_CAUSE_KEY + (index + 1)) : Component.literal(cause);
     }
 
     private static void finish(MinecraftServer server, AiVillageLifeSavedData data, AiVillageEvent event) {
@@ -772,8 +813,20 @@ final class AiVillageEvents {
         }
     }
 
-    private static MutableComponent title(AiVillageEvent event) {
-        return Component.translatable("mcaconversations.ai.event." + event.type.key(), event.place, event.name(0), event.name(1));
+    static MutableComponent title(AiVillageEvent event) {
+        return Component.translatable("mcaconversations.ai.event." + event.type.key(), placeName(event.place), event.name(0),
+                event.name(1));
+    }
+
+    /**
+     * A place label as players read it: a village building by MCA's own (translated) name for its type,
+     * the middle of the village by ours, anything else as recorded.
+     */
+    static Component placeName(String label) {
+        if (label.equals(SQUARE)) {
+            return Component.translatable("mcaconversations.ai.event.square");
+        }
+        return Component.translatableWithFallback("buildingType." + label.trim().replace(' ', '_'), label);
     }
 
     private static void bar(ServerLevel level, AiVillageEvent event, Live live, long now) {
@@ -823,7 +876,9 @@ final class AiVillageEvents {
         Set<UUID> rewarded = new HashSet<>();
         for (UUID id : event.subjects) {
             Entity honouree = level.getEntity(id);
-            if (honouree == null || !honouree.isAlive() || honouree.distanceTo(player) > 48) {
+            // Those it is for may include players (a wedding partner, a parent in the family tree).
+            if (honouree == null || !honouree.isAlive() || !McaCompat.isMcaVillager(honouree)
+                    || honouree.distanceTo(player) > 48) {
                 continue;
             }
             rewarded.add(id);
@@ -869,7 +924,7 @@ final class AiVillageEvents {
                                long gameTime) {
         if (hearts != 0 && McaConversationsConfig.aiRelationshipEffects()) {
             AiHearts.grant(server, villager, player, "ai.event." + event.type.key(), hearts, DepthClass.STANDARD,
-                    ReplayPolicy.ONCE, 0, 0, "ai.event." + event.id + "." + villager.getUUID(), gameTime);
+                    ReplayPolicy.ONCE_PER_DAY, 0, 0, "ai.event." + event.id + "." + villager.getUUID(), gameTime);
         }
     }
 
@@ -917,7 +972,7 @@ final class AiVillageEvents {
         }
         long now = server.overworld().getDayTime();
         for (AiVillageEvent event : AiVillageLifeSavedData.get(server).events()) {
-            if (event.ended || !event.type.gathering() || event.villageId != village.getAsInt()
+            if (event.ended || !event.type.gathering() || !in(event, villager.level(), village.getAsInt())
                     || event.invited.contains(player) || event.attended.contains(player)
                     || !(event.active(now) || event.start - now <= INVITE_LEAD)
                     || (organiserOnly && !villager.getUUID().equals(event.organizer))) {
@@ -956,7 +1011,7 @@ final class AiVillageEvents {
         String playerName = player.getName().getString();
         UUID self = villager.getUUID();
         for (AiVillageEvent event : data.events()) {
-            if (event.villageId != village.getAsInt()) {
+            if (!in(event, villager.level(), village.getAsInt())) {
                 continue;
             }
             if (event.type == AiVillageEventType.QUARREL) {
@@ -1014,7 +1069,7 @@ final class AiVillageEvents {
         }
         long now = server.overworld().getDayTime();
         for (AiVillageEvent event : AiVillageLifeSavedData.get(server).events()) {
-            if (event.villageId == village.getAsInt() && (event.type != AiVillageEventType.QUARREL || event.started)) {
+            if (in(event, villager.level(), village.getAsInt()) && (event.type != AiVillageEventType.QUARREL || event.started)) {
                 out.add(capitalise(event.when(now)) + ": " + event.describe());
             }
         }
@@ -1023,6 +1078,34 @@ final class AiVillageEvents {
 
     private static String capitalise(String s) {
         return s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
+    /** An event that is no longer kept: its bar goes, and whoever was gathering for it is let go. */
+    private static void drop(MinecraftServer server, int eventId) {
+        Live live = LIVE.remove(eventId);
+        if (live == null) {
+            return;
+        }
+        if (live.bar != null) {
+            live.bar.removeAllPlayers();
+        }
+        for (ServerLevel level : server.getAllLevels()) {
+            release(level, live.slots.keySet());
+        }
+        live.slots.clear();
+    }
+
+    /**
+     * Village life is off (its own switch, or AI as a whole): no bars left on screen, nobody kept
+     * gathering. Cheap when nothing is live, so it can run every tick while disabled.
+     */
+    static void idle(MinecraftServer server) {
+        if (LIVE.isEmpty()) {
+            return;
+        }
+        for (Integer id : List.copyOf(LIVE.keySet())) {
+            drop(server, id);
+        }
     }
 
     static void reset() {

@@ -109,11 +109,11 @@ final class AiMediation {
         String pair = self.compareTo(other) < 0 ? self + "-" + other : other + "-" + self;
         Entity otherEntity = player.serverLevel().getEntity(other);
         if (McaConversationsConfig.aiRelationshipEffects()) {
-            AiHearts.grant(server, villager, player, "ai.mediation", PEACE_HEARTS, DepthClass.STANDARD, ReplayPolicy.ONCE,
-                    0, 0, "ai.mediation." + pair + "." + day + "." + self, now);
+            AiHearts.grant(server, villager, player, "ai.mediation", PEACE_HEARTS, DepthClass.STANDARD,
+                    ReplayPolicy.ONCE_PER_DAY, 0, 0, "ai.mediation." + pair + "." + day + "." + self, now);
             if (otherEntity != null) {
                 AiHearts.grant(server, otherEntity, player, "ai.mediation", PEACE_HEARTS, DepthClass.STANDARD,
-                        ReplayPolicy.ONCE, 0, 0, "ai.mediation." + pair + "." + day + "." + other, now);
+                        ReplayPolicy.ONCE_PER_DAY, 0, 0, "ai.mediation." + pair + "." + day + "." + other, now);
             }
         }
         StateTracker.apply(villager, player, ConversationState.GRATEFUL);

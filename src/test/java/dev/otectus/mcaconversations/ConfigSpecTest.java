@@ -83,6 +83,7 @@ class ConfigSpecTest {
             Map.entry("ai.conversationIdleTicks", 6000),
             Map.entry("ai.requestTimeoutSeconds", 25),
             Map.entry("ai.requestJsonMode", false),
+            Map.entry("ai.actionJudge", McaConversationsConfig.ActionJudge.WHEN_MISSING),
             Map.entry("ai.autoConversationCooldownTicks", 6000),
             Map.entry("ai.autoConversationChance", 0.1),
             Map.entry("ai.autoConversationRadius", 10),
@@ -191,6 +192,7 @@ class ConfigSpecTest {
         assertEquals(6000, McaConversationsConfig.aiConversationIdleTicks());
         assertEquals(25, McaConversationsConfig.aiRequestTimeoutSeconds());
         assertFalse(McaConversationsConfig.aiRequestJsonMode());
+        assertEquals(McaConversationsConfig.ActionJudge.WHEN_MISSING, McaConversationsConfig.aiActionJudge());
         assertEquals(6000, McaConversationsConfig.aiAutoConversationCooldownTicks());
         assertEquals(0.1, McaConversationsConfig.aiAutoConversationChance());
         assertEquals(10, McaConversationsConfig.aiAutoConversationRadius());

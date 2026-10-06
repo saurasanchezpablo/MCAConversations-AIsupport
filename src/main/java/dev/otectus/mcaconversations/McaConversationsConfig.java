@@ -28,6 +28,20 @@ public final class McaConversationsConfig {
      * <p>Declared with the setting rather than with the behaviour so the key exists in the file from
      * the version that introduces it; the attack interruption that reads it is 1.7.1 slice 5.
      */
+    /**
+     * When a second, short request reads an AI exchange to find out what the player asked for and what
+     * the villager answered, in any language. The main reply already carries that reading; this is for
+     * models that leave it out, or that are not trusted to judge their own line.
+     */
+    public enum ActionJudge {
+        /** Only when the villager's reply did not say what was asked and answered. The default. */
+        WHEN_MISSING,
+        /** After every exchange in which the villager could do something for the player. */
+        ALWAYS,
+        /** Never: a reply without the reading falls back to recognising common Spanish and English phrasing. */
+        OFF
+    }
+
     public enum AttackedBehavior {
         /** MCA decides: a guard fights back, a farmer panics. The default. */
         NATIVE_COMBAT,
@@ -375,6 +389,10 @@ public final class McaConversationsConfig {
 
     public static boolean aiRequestJsonMode() {
         return serverBool(SERVER.aiRequestJsonMode, false);
+    }
+
+    public static ActionJudge aiActionJudge() {
+        return serverEnum(SERVER.aiActionJudge, ActionJudge.WHEN_MISSING);
     }
 
     /** hideExhaustedTopics, or true while the server spec is unavailable. */
@@ -1171,6 +1189,7 @@ public final class McaConversationsConfig {
         public final ModConfigSpec.IntValue aiConversationIdleTicks;
         public final ModConfigSpec.IntValue aiRequestTimeoutSeconds;
         public final ModConfigSpec.BooleanValue aiRequestJsonMode;
+        public final ModConfigSpec.EnumValue<ActionJudge> aiActionJudge;
         public final ModConfigSpec.IntValue aiAutoConversationCooldownTicks;
         public final ModConfigSpec.DoubleValue aiAutoConversationChance;
         public final ModConfigSpec.IntValue aiAutoConversationRadius;
@@ -1442,6 +1461,14 @@ public final class McaConversationsConfig {
                     "Ask the endpoint for response_format json_object. More reliable structured replies on",
                     "OpenAI and most compatible servers; turn it off for an endpoint that rejects the field.")
                     .define("requestJsonMode", false);
+            aiActionJudge = b.comment(
+                    "How the game finds out what a player asked a villager to do (work, follow, give something,",
+                    "take something back...) and whether the villager agreed, in any language and any wording.",
+                    "The villager's reply reports it itself. WHEN_MISSING asks a second, short question about the",
+                    "exchange only when a reply leaves that out; ALWAYS asks it after every exchange in which the",
+                    "villager could act (more reliable with small models, one more request per line); OFF never",
+                    "asks, and falls back to recognising common Spanish and English phrasing.")
+                    .defineEnum("actionJudge", ActionJudge.WHEN_MISSING);
             aiAutoConversationCooldownTicks = b.comment(
                     "Least time between two villager-started conversations with one player, in ticks (6000 = 5 min).")
                     .defineInRange("autoConversationCooldownTicks", 6000, 600, 72000);

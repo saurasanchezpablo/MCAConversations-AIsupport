@@ -24,6 +24,8 @@ final class AiIntent {
     }
 
     static final String ALL = "all";
+    /** Languages (game language codes' first part) these phrase lists know. */
+    static final java.util.Set<String> LANGUAGES = java.util.Set.of("es", "en");
 
     private static final String REQUEST = "(?:puedes|podrias|podria|quieres|querrias|necesito que|me haces el favor de|"
             + "ve a|vete a|anda a|id a|vayan a|vamos a|hazme el favor de|te pido que|could you|can you|would you|will you|"
@@ -113,9 +115,9 @@ final class AiIntent {
             + "everybody|all of you|you all)\\b");
     private static final Pattern IMPERATIVE_START = Pattern.compile("^(por favor\\s+)?(tala|corta|consigue|trae|recoge|"
             + "mina|pica|excava|coge|busca|pesca|caza|cosecha|recolecta|siega|asa|cocina|funde|hornea|cuece|construye|"
-            + "haz|hazme|levanta|monta|dame|entregame|traeme|pasame|toma|ten|sigueme|ven|quedate|espera|vete|vuelve|"
+            + "haz|hazme|construyeme|constuye|prepara|preparame|planta|traza|enciende|levanta|monta|dame|entregame|traeme|pasame|toma|ten|sigueme|ven|quedate|espera|vete|vuelve|"
             + "guarda|mete|chop|cut|get|gather|mine|dig|fish|hunt|harvest|reap|cook|roast|smelt|bake|build|make|give|"
-            + "hand|bring|take|follow|come|stay|wait|go|store|put|pick|trade|here|have)\\b");
+            + "hand|bring|take|follow|come|stay|wait|go|store|put|pick|trade|here|have|plant|light)\\b");
 
     private AiIntent() {
     }
@@ -133,7 +135,9 @@ final class AiIntent {
         if (text.isEmpty() || ABILITY.matcher(text).find()) {
             return Optional.empty();
         }
-        boolean requested = IMPERATIVE_START.matcher(text).find() || Pattern.compile("\\b" + REQUEST + "\\b").matcher(text).find();
+        boolean requested = IMPERATIVE_START.matcher(text).find() || Pattern.compile("\\b" + REQUEST + "\\b").matcher(text).find()
+                // "¿me asas esta carne?", "¿nos traes madera?": a favour asked of "you".
+                || text.matches("^(me|nos) [a-z]+(as|es)\\b.*");
         for (Rule rule : RULES) {
             Matcher m = rule.pattern().matcher(text);
             if (!m.find()) {
@@ -148,8 +152,13 @@ final class AiIntent {
                     || rule.kind() == AiActionKind.STOP_WORK || rule.kind() == AiActionKind.FOLLOW
                     || rule.kind() == AiActionKind.STAY || rule.kind() == AiActionKind.TRADE
                     || rule.kind() == AiActionKind.GO_HOME || rule.kind() == AiActionKind.MOVE;
-            if (!requested && !selfEvident && m.start() > 20) {
-                // A work or build word deep inside a sentence with no request frame: talk, not an order.
+            if (!requested && !selfEvident) {
+                // A work or build word with no request frame ("me gusta pescar", "I like to fish"): talk, not an order.
+                return Optional.empty();
+            }
+            if (rule.kind() == AiActionKind.GIFT && !requested && m.start() > 0
+                    && !text.matches("^(here|aqui|mira|look|oye|hey|hola|hi|hello|ten|toma|mira lo que)\\b.*")) {
+                // "mi madre toma café", "do you have this in stock?": a gift is offered to the listener.
                 return Optional.empty();
             }
             int amount = rule.kind() == AiActionKind.WORK ? amount(text) : 0;

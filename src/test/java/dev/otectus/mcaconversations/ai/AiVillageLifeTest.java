@@ -151,4 +151,74 @@ class AiVillageLifeTest {
         assertEquals(dev.otectus.mcaconversations.network.VillagerBubblesS2C.EVENT, reason.bubble());
         assertTrue(reason.text().contains("festival"));
     }
+
+    @Test
+    void peaceOffersAgeByGameDayNotByTheDayClock() {
+        AiVillageLifeSavedData data = new AiVillageLifeSavedData();
+        UUID a = UUID.randomUUID();
+        UUID b = UUID.randomUUID();
+        data.offerPeace(new AiVillageLifeSavedData.PeaceOffer(a, b, "Ana", UUID.randomUUID(), 10));
+        // Sleeping moved the day clock far ahead of game time: the offer is still fresh.
+        data.prune(500 * DAY, 11);
+        assertTrue(data.peaceOffer(a, b, 11).isPresent());
+        data.prune(500 * DAY, 10 + AiVillageLifeSavedData.PEACE_DAYS + 1);
+        assertTrue(data.peaceOffer(a, b, 10).isEmpty(), "lapsed by game day");
+    }
+
+    @Test
+    void aFullLogDropsEndedEventsBeforeOnesStillToCome() {
+        AiVillageLifeSavedData data = new AiVillageLifeSavedData();
+        for (int i = 0; i < AiVillageLifeSavedData.MAX_EVENTS; i++) {
+            assertTrue(data.add(event(AiVillageEventType.FESTIVAL, i * DAY, List.of(), "")).isEmpty());
+        }
+        AiVillageEvent ended = data.events().get(40);
+        ended.ended = true;
+        AiVillageEvent pending = data.events().get(0);
+        List<AiVillageEvent> evicted = data.add(event(AiVillageEventType.ELECTION, 999 * DAY, List.of("A", "B"), ""));
+        assertEquals(List.of(ended), evicted);
+        assertTrue(data.events().contains(pending));
+        assertEquals(AiVillageLifeSavedData.MAX_EVENTS, data.events().size());
+        // Nothing ended: the oldest goes.
+        assertEquals(List.of(pending), data.add(event(AiVillageEventType.MARKET, 1_000 * DAY, List.of(), "")));
+    }
+
+    @Test
+    void aDeadLeaderOrCandidateLeavesNothingStuck() {
+        AiVillageLifeSavedData data = new AiVillageLifeSavedData();
+        AiVillageLifeSavedData.Census census = data.census("minecraft:overworld|3");
+        UUID leader = UUID.randomUUID();
+        UUID rival = UUID.randomUUID();
+        census.leader = leader;
+        census.leaderName = "Ana";
+        census.leaderPlatform = "markets";
+        census.nextElectionDay = 40;
+        census.candidates.addAll(List.of(leader, rival));
+        census.candidateNames.addAll(List.of("Ana", "Bob"));
+        census.platforms.addAll(List.of("markets", "harmony"));
+        census.votes.put(UUID.randomUUID(), rival);
+        data.removeVillager(leader);
+        assertEquals(null, census.leader);
+        assertEquals("", AiPolitics.platform(census));
+        assertEquals(-1, census.nextElectionDay, "a new campaign starts");
+        assertFalse(census.electionPending());
+        assertTrue(census.candidateNames.isEmpty() && census.platforms.isEmpty() && census.votes.isEmpty());
+    }
+
+    @Test
+    void quarrelCausesAreTranslatedForPlayers() {
+        net.minecraft.network.chat.Component known = AiVillageEvents.cause(AiVillageEvents.QUARREL_CAUSES.get(0));
+        assertTrue(known.getContents() instanceof net.minecraft.network.chat.contents.TranslatableContents t
+                && t.getKey().equals("mcaconversations.ai.event.quarrel.cause.1"));
+        net.minecraft.network.chat.Component other = AiVillageEvents.cause("a stolen pie");
+        assertEquals("a stolen pie", other.getString());
+    }
+
+    @Test
+    void theDiaryTitleIsInThePlayersLanguage() {
+        assertEquals("My diary", AiDiary.bookTitle("en_us"));
+        assertEquals("Meu diário", AiDiary.bookTitle("pt_BR"));
+        assertEquals("My diary", AiDiary.bookTitle("xx_yy"), "a language this mod does not ship falls back to English");
+        assertEquals("My diary", AiDiary.bookTitle(null));
+        assertEquals("My diary", AiDiary.bookTitle("../../evil"));
+    }
 }

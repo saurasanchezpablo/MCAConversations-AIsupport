@@ -68,6 +68,15 @@ public final class AiVillageLifeSavedData extends SavedData {
         boolean electionPending() {
             return candidates.size() == 2;
         }
+
+        /** Calls off a campaign: no candidates, no votes, no backers. */
+        void clearElection() {
+            candidates.clear();
+            candidateNames.clear();
+            platforms.clear();
+            votes.clear();
+            backers.clear();
+        }
     }
 
     /** {@code from} is ready to make peace with {@code to}, as {@code player} carried it. */
@@ -93,12 +102,25 @@ public final class AiVillageLifeSavedData extends SavedData {
         return nextId++;
     }
 
-    void add(AiVillageEvent event) {
+    /**
+     * Adds an event; returns those dropped to stay within {@link #MAX_EVENTS} (the oldest ended ones
+     * first, so an election or a gathering still to come is the last thing lost).
+     */
+    List<AiVillageEvent> add(AiVillageEvent event) {
         events.add(event);
+        List<AiVillageEvent> evicted = new ArrayList<>();
         while (events.size() > MAX_EVENTS) {
-            events.remove(0);
+            int index = 0;
+            for (int i = 0; i < events.size() - 1; i++) {
+                if (events.get(i).ended) {
+                    index = i;
+                    break;
+                }
+            }
+            evicted.add(events.remove(index));
         }
         setDirty();
+        return evicted;
     }
 
     /** The census of one village; call {@link #changed()} after changing it. */
@@ -110,10 +132,14 @@ public final class AiVillageLifeSavedData extends SavedData {
         setDirty();
     }
 
-    void prune(long now) {
+    /**
+     * Drops what has lapsed. Events run on the day clock ({@code now} is day time); peace offers are
+     * dated by game-time day ({@code gameDay}), like every reader of them, so sleeping cannot age them.
+     */
+    void prune(long now, long gameDay) {
         long today = Math.floorDiv(now, AiVillageEventType.DAY);
         boolean changed = events.removeIf(e -> e.ended && today - Math.floorDiv(e.end, AiVillageEventType.DAY) > KEEP_DAYS);
-        changed |= peace.removeIf(p -> today - p.day() > PEACE_DAYS);
+        changed |= peace.removeIf(p -> gameDay - p.day() > PEACE_DAYS);
         if (changed) {
             setDirty();
         }
@@ -142,11 +168,28 @@ public final class AiVillageLifeSavedData extends SavedData {
         }
     }
 
-    /** A villager is gone: events about them stay (a funeral needs its name); offers and census entries go. */
+    /**
+     * A villager is gone: events about them stay (a funeral needs its name); offers and census entries
+     * go. A dead leader leaves the village leaderless (a new campaign starts), and a dead candidate
+     * calls off the election.
+     */
     void removeVillager(UUID villager) {
         boolean changed = peace.removeIf(p -> p.from().equals(villager) || p.to().equals(villager));
         for (Census c : census.values()) {
             changed |= c.partners.remove(villager) != null;
+            changed |= c.votes.remove(villager) != null;
+            if (villager.equals(c.leader)) {
+                c.leader = null;
+                c.leaderName = "";
+                c.leaderPlatform = "";
+                c.leaderSince = -1;
+                c.nextElectionDay = -1;
+                changed = true;
+            }
+            if (c.candidates.contains(villager)) {
+                c.clearElection();
+                changed = true;
+            }
         }
         if (changed) {
             setDirty();

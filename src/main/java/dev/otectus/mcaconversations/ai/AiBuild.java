@@ -39,6 +39,7 @@ import net.minecraft.world.level.block.WallBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.phys.AABB;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -285,6 +286,7 @@ final class AiBuild {
         team.add(leader);
         team.addAll(helpers);
         for (Entity worker : team) {
+            stop(worker.getUUID());
             AiErrands.stop(worker.getUUID());
             AiWork.stop(worker.getUUID(), true);
             VillagerAttention.release(worker);
@@ -294,8 +296,15 @@ final class AiBuild {
         ServerBossEvent bar = new ServerBossEvent(title(leaderName, template, workers.size(), 0, pieces.size()),
                 BossEvent.BossBarColor.GREEN, BossEvent.BossBarOverlay.NOTCHED_10);
         bar.addPlayer(player);
+        List<ItemStack> materials = new ArrayList<>();
+        for (ItemStack stack : stock) {
+            // Taken out of the handed stacks, so the window never gives back what the build now holds.
+            if (!stack.isEmpty()) {
+                materials.add(stack.split(stack.getCount()));
+            }
+        }
         BUILDS.add(new Build(player.getUUID(), leader.getUUID(), workers, template, origin, facing, pieces,
-                new ArrayList<>(stock), bar, now));
+                materials, bar, now));
         say(leader, player, "build_start", leaderName);
         return true;
     }
@@ -336,7 +345,7 @@ final class AiBuild {
                 keep = false;
             }
             if (!keep) {
-                finish(server, build);
+                finish(server, build, false);
                 it.remove();
             }
         }
@@ -439,6 +448,9 @@ final class AiBuild {
         if (!state.canBeReplaced()) {
             return false;
         }
+        if (role == Role.DOOR && !level.getBlockState(pos.above()).canBeReplaced()) {
+            return false; // a door's upper half never goes over a block
+        }
         return !checkEntities || level.getEntitiesOfClass(LivingEntity.class, new AABB(pos)).isEmpty();
     }
 
@@ -497,21 +509,18 @@ final class AiBuild {
         return Block.updateFromNeighbourShapes(state, level, pos);
     }
 
-    private static void finish(MinecraftServer server, Build build) {
+    /** Ends a build: the materials left go back, everyone stops; {@code stopped} when told to, so no "done" line. */
+    private static void finish(MinecraftServer server, Build build, boolean stopped) {
         build.bar.removeAllPlayers();
-        ServerPlayer player = server.getPlayerList().getPlayer(build.player);
-        Entity leader = player == null ? null : player.serverLevel().getEntity(build.leader);
+        ServerPlayer player = server == null ? null : server.getPlayerList().getPlayer(build.player);
+        Entity leader = AiErrands.find(server, build.leader);
         for (ItemStack stack : build.stock) {
-            if (stack.isEmpty()) {
-                continue;
-            }
-            if (player != null && !player.getInventory().add(stack) && !stack.isEmpty()) {
-                player.drop(stack, false);
-            } else if (player == null && leader != null) {
-                leader.spawnAtLocation(stack);
-            }
+            AiErrands.giveBack(player, leader, stack);
         }
+        build.stock.clear();
         if (player == null) {
+            // MCA's "stopworking" needs a player: without one the workers stay on the prospecting chore
+            // (no task, so harmless) until someone gives them another order.
             return;
         }
         for (UUID id : build.workers) {
@@ -521,7 +530,7 @@ final class AiBuild {
                 McaHandles.runInteraction(worker, player, "MOVE");
             }
         }
-        if (leader != null && leader.isAlive()) {
+        if (leader != null && leader.isAlive() && !stopped) {
             String name = name(leader);
             if (!build.missing.isEmpty()) {
                 Set<String> what = new LinkedHashSet<>();
@@ -545,15 +554,34 @@ final class AiBuild {
         AiLines.say(villager, player, AiLines.variant(key), name, AiEmotion.NEUTRAL, VoiceIntent.STATEMENT);
     }
 
+    /**
+     * The villager was told to stop: a build they lead ends (what is left of the materials goes back);
+     * a helper just leaves it, the block they were on going back in the queue for the others.
+     */
+    static void stop(UUID villager) {
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+        List<Build> ended = new ArrayList<>();
+        for (Build build : BUILDS) {
+            if (build.leader.equals(villager)) {
+                ended.add(build);
+            } else if (build.workers.remove(villager)) {
+                Piece piece = build.claimed.remove(villager);
+                if (piece != null) {
+                    build.queue.add(0, piece);
+                }
+                build.claimedAt.remove(villager);
+                build.working.remove(villager);
+            }
+        }
+        BUILDS.removeAll(ended);
+        ended.forEach(build -> finish(server, build, true));
+    }
+
     /** The player is leaving: the build stops and what is left of the materials goes back to them. */
     static void forgetPlayer(ServerPlayer player) {
-        BUILDS.removeIf(b -> {
-            if (b.player.equals(player.getUUID())) {
-                finish(player.getServer(), b);
-                return true;
-            }
-            return false;
-        });
+        List<Build> ended = BUILDS.stream().filter(b -> b.player.equals(player.getUUID())).toList();
+        BUILDS.removeAll(ended);
+        ended.forEach(b -> finish(player.getServer(), b, false));
     }
 
     static void reset() {

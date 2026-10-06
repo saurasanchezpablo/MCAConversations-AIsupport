@@ -54,6 +54,22 @@ public final class AiGameTests {
         String content;
         if (body.contains("You were about to say")) {
             content = "{\"message\": \"I would love to, but I have no axe. Will you lend me yours?\"}";
+        } else if (body.contains("You read one moment of a conversation") && body.contains("gt-judge-de")) {
+            // The second reading of an exchange, as a real model would give it for a German request.
+            content = "{\"request\": {\"do\": \"work\", \"task\": \"chop\", \"amount\": 2, \"answer\": \"yes\"}, "
+                    + "\"received\": null}";
+        } else if (body.contains("You read one moment of a conversation") && body.contains("gt-judge-no")) {
+            content = "{\"request\": {\"do\": \"work\", \"task\": \"chop\", \"answer\": \"no\"}, \"received\": null}";
+        } else if (body.contains("gt-judge-de")) {
+            content = reply("Na klar, mache ich!", "positive", "");
+        } else if (body.contains("gt-judge-no")) {
+            // "Sure..." would read as a yes to a phrase list; the reading says it was a no.
+            content = reply("Sure... maybe some other life.", "neutral", "");
+        } else if (body.contains("gt-reply-fr")) {
+            content = "{\"message\": \"Bien sûr, j'y vais !\", \"assessment\": {\"impact\": \"neutral\", "
+                    + "\"confidence\": 0.9}, \"emotion\": \"happy\", \"memory\": null, \"effects\": [], "
+                    + "\"request\": {\"do\": \"work\", \"task\": \"chop\", \"amount\": 2, \"answer\": \"yes\"}, "
+                    + "\"received\": null}";
         } else if (body.contains("gt-mine") || body.contains("gt-pickup") || body.contains("gt-click")) {
             content = reply("Of course, I'm on it.", "positive", "");
         } else if (body.contains("gt-work-fallback")) {
@@ -173,6 +189,51 @@ public final class AiGameTests {
             h.assertTrue(AiWork.job(villager.getUUID()).isPresent(), "no work job yet");
             h.assertTrue(McaCompat.getCurrentChore(villager).orElse("").equalsIgnoreCase("CHOP"),
                     "MCA chore is " + McaCompat.getCurrentChore(villager).orElse("none"));
+        });
+    }
+
+    /**
+     * A request in German, which no phrase list knows: the reply leaves out what was asked, so a second
+     * short reading of the exchange finds it, and the villager goes to chop.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 200)
+    public static void aRequestInAnyLanguageIsUnderstood(GameTestHelper h) {
+        Entity villager = villager(h, true);
+        ServerPlayer player = player(h);
+        AiConversations.converse(player, villager, "Kannst du mir bitte zwei Stämme Holz hacken? gt-judge-de");
+        h.succeedWhen(() -> {
+            h.assertTrue(REQUESTS.stream().anyMatch(b -> b.contains("You read one moment") && b.contains("gt-judge-de")),
+                    "the exchange was not read a second time");
+            h.assertTrue(AiWork.job(villager.getUUID()).isPresent(), "no work job yet");
+            h.assertTrue(McaCompat.getCurrentChore(villager).orElse("").equalsIgnoreCase("CHOP"),
+                    "MCA chore is " + McaCompat.getCurrentChore(villager).orElse("none"));
+        });
+    }
+
+    /** A reply that carries its own reading (French here) is acted on directly, with no second request. */
+    @GameTest(template = TEMPLATE, timeoutTicks = 200)
+    public static void aReplyThatSaysWhatWasAskedIsActedOn(GameTestHelper h) {
+        Entity villager = villager(h, true);
+        ServerPlayer player = player(h);
+        AiConversations.converse(player, villager, "Tu pourrais couper un peu de bois ? gt-reply-fr");
+        h.succeedWhen(() -> {
+            h.assertTrue(AiWork.job(villager.getUUID()).isPresent(), "no work job yet");
+            h.assertFalse(REQUESTS.stream().anyMatch(b -> b.contains("You read one moment") && b.contains("gt-reply-fr")),
+                    "a reply with its own reading was read again");
+        });
+    }
+
+    /** The reading says no, though the words start like a yes: nothing runs. */
+    @GameTest(template = TEMPLATE, timeoutTicks = 200)
+    public static void aReadRefusalRunsNothing(GameTestHelper h) {
+        Entity villager = villager(h, true);
+        ServerPlayer player = player(h);
+        AiConversations.converse(player, villager, "go chop some wood gt-judge-no");
+        h.runAfterDelay(120, () -> {
+            h.assertTrue(REQUESTS.stream().anyMatch(b -> b.contains("You read one moment") && b.contains("gt-judge-no")),
+                    "the exchange was not read a second time");
+            h.assertTrue(AiWork.job(villager.getUUID()).isEmpty(), "a refused order started a job");
+            h.succeed();
         });
     }
 

@@ -4,6 +4,7 @@ import dev.otectus.mcaconversations.disposition.DispositionAxis;
 
 import java.util.Collection;
 import java.util.Locale;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -15,6 +16,8 @@ public final class AiContextFormat {
 
     /** Most entries of any list or set shown in one line. */
     static final int MAX_LIST = 6;
+    /** An id as this mod and MCA write them: lower case, no spaces, maybe namespaced. */
+    private static final Pattern ID = Pattern.compile("[a-z0-9_.:/#-]+");
 
     private AiContextFormat() {
     }
@@ -28,12 +31,21 @@ public final class AiContextFormat {
         return value.replace('_', ' ').replace('.', ' ').trim().toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * Up to {@link #MAX_LIST} entries, comma-separated. Ids ({@code "lost_ring"}, {@code "mca:odd"})
+     * become words; anything else, such as the names of the villagers nearby, is shown as written, so
+     * "Alice" stays "Alice" and "María José" keeps its case.
+     */
     public static String list(Collection<?> values) {
         if (values == null || values.isEmpty()) {
             return "";
         }
         return values.stream().filter(v -> v != null && !v.toString().isBlank()).limit(MAX_LIST)
-                .map(v -> words(v.toString())).collect(Collectors.joining(", "));
+                .map(v -> entry(v.toString())).collect(Collectors.joining(", "));
+    }
+
+    private static String entry(String value) {
+        return ID.matcher(value).matches() ? words(value) : value.strip();
     }
 
     /** A disposition axis value as a band. TENSION runs 0..100; the others -100..100 around a baseline of 0. */

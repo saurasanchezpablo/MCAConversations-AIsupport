@@ -99,12 +99,14 @@ final class AiSecrets {
         }
         if (owner != null && owner.isAlive()) {
             if (McaConversationsConfig.aiRelationshipEffects()) {
+                // Every betrayal stings (less if several come out the same day), not only the first ever.
                 AiHearts.grant(server, owner, player, "ai.secret.betrayed", BETRAYAL_HEARTS, DepthClass.STANDARD,
-                        ReplayPolicy.ONCE, 0, 0, "ai.secret." + betrayal.owner() + "." + betrayal.due(), now);
+                        ReplayPolicy.DAILY_REPEAT, 0, 0, "ai.secret." + betrayal.owner() + "." + betrayal.due(), now);
             }
             StateTracker.apply(owner, player, ConversationState.ANNOYED);
         }
-        String ownerName = pair.villagerName().isEmpty() ? "Someone" : pair.villagerName();
+        Component ownerName = pair.villagerName().isEmpty() ? Component.translatable("mcaconversations.ai.secret.someone")
+                : Component.literal(pair.villagerName());
         player.displayClientMessage(Component.translatable("mcaconversations.ai.secret.found_out", ownerName)
                 .withStyle(ChatFormatting.RED), true);
     }

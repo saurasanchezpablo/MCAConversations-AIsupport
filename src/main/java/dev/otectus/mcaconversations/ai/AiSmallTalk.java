@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.stream.JsonReader;
 import dev.otectus.mcaconversations.McaConversations;
 import dev.otectus.mcaconversations.McaConversationsConfig;
 import dev.otectus.mcaconversations.compat.McaCompat;
@@ -21,6 +22,7 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.npc.Villager;
 
+import java.io.StringReader;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -76,6 +78,10 @@ final class AiSmallTalk {
         }
         long now = server.overworld().getGameTime();
         long cooldown = McaConversationsConfig.aiVillagerChatterCooldownTicks();
+        if (server.getTickCount() % AiInitiative.PRUNE_INTERVAL_TICKS == 0) {
+            AiInitiative.pruneStale(LAST_BY_PLAYER, now, cooldown);
+            AiInitiative.pruneStale(LAST_BY_PAIR, now, PAIR_COOLDOWN);
+        }
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             Long last = LAST_BY_PLAYER.get(player.getUUID());
             if (player.isSpectator() || (last != null && now - last < cooldown)
@@ -94,7 +100,8 @@ final class AiSmallTalk {
 
     private static Optional<Entity[]> pair(ServerPlayer player, long now) {
         List<Entity> around = player.serverLevel().getEntities(player, player.getBoundingBox().inflate(PLAYER_RADIUS),
-                e -> e.isAlive() && McaCompat.isMcaVillager(e) && free(e, now));
+                e -> e.isAlive() && e.distanceToSqr(player) <= PLAYER_RADIUS * PLAYER_RADIUS
+                        && McaCompat.isMcaVillager(e) && free(e, now));
         for (int i = 0; i < around.size(); i++) {
             for (int j = i + 1; j < around.size(); j++) {
                 Entity a = around.get(i);
@@ -143,6 +150,11 @@ final class AiSmallTalk {
                         body, Duration.ofSeconds(McaConversationsConfig.aiRequestTimeoutSeconds()))
                 .exceptionally(t -> AiHttpResult.failed("network_error"))
                 .thenAcceptAsync(result -> {
+                    // A stopping server runs what it is handed inline, on this HTTP thread: TALKING is
+                    // server-thread state, and reset() clears it on stop anyway.
+                    if (!server.isSameThread() || !server.isRunning()) {
+                        return;
+                    }
                     try {
                         Optional<Exchange> exchange = result.content().flatMap(c -> parse(c, nameA, nameB));
                         ServerPlayer listener = server.getPlayerList().getPlayer(playerId);
@@ -230,24 +242,11 @@ final class AiSmallTalk {
         if (content == null) {
             return Optional.empty();
         }
-        int open = content.indexOf('{');
-        int close = content.lastIndexOf('}');
-        if (open < 0 || close <= open) {
+        Optional<JsonObject> found = exchangeObject(AiHttpResult.stripReasoning(content));
+        if (found.isEmpty()) {
             return Optional.empty();
         }
-        JsonObject json;
-        try {
-            JsonElement element = JsonParser.parseString(content.substring(open, close + 1));
-            if (!element.isJsonObject()) {
-                return Optional.empty();
-            }
-            json = element.getAsJsonObject();
-        } catch (RuntimeException e) {
-            return Optional.empty();
-        }
-        if (!json.has("lines") || !json.get("lines").isJsonArray()) {
-            return Optional.empty();
-        }
+        JsonObject json = found.get();
         List<Line> lines = new ArrayList<>();
         for (JsonElement e : json.getAsJsonArray("lines")) {
             if (!e.isJsonObject() || lines.size() >= MAX_LINES) {
@@ -274,6 +273,32 @@ final class AiSmallTalk {
         String topic = json.has("topic") && json.get("topic").isJsonPrimitive()
                 ? AiText.clean(json.get("topic").getAsString(), 80) : "";
         return Optional.of(new Exchange(List.copyOf(lines), warmth, topic));
+    }
+
+    /** Most opening braces tried before giving up on a reply. */
+    private static final int MAX_JSON_STARTS = 16;
+
+    /**
+     * The first JSON object in the text that has a {@code "lines"} array. Each opening brace is tried in
+     * turn and only one value is read from it, so prose, code fences or a second object around the
+     * answer (with braces of their own) do not spoil it. Pure.
+     */
+    static Optional<JsonObject> exchangeObject(String text) {
+        int tries = 0;
+        for (int open = text.indexOf('{'); open >= 0 && tries < MAX_JSON_STARTS; open = text.indexOf('{', open + 1), tries++) {
+            try {
+                JsonReader reader = new JsonReader(new StringReader(text.substring(open)));
+                reader.setLenient(true);
+                JsonElement element = JsonParser.parseReader(reader);
+                if (element.isJsonObject() && element.getAsJsonObject().has("lines")
+                        && element.getAsJsonObject().get("lines").isJsonArray()) {
+                    return Optional.of(element.getAsJsonObject());
+                }
+            } catch (RuntimeException e) {
+                // not a whole object from here: try the next brace
+            }
+        }
+        return Optional.empty();
     }
 
     // --- playing it out ----------------------------------------------------------------------------------
@@ -353,6 +378,11 @@ final class AiSmallTalk {
                         "time has softened it", day);
             }
         }
+    }
+
+    /** A player left: their own cooldown goes; pair cooldowns age out on their own. */
+    static void forgetPlayer(UUID player) {
+        LAST_BY_PLAYER.remove(player);
     }
 
     static void reset() {

@@ -214,28 +214,38 @@ public record AiOutcomePlan(String decision, int authoredHearts, Optional<Conver
         List<AiEffect.Action> actions = new java.util.ArrayList<>();
         if (policy.gameplayEffects()) {
             for (AiEffect effect : reply.effects()) {
-                if (!(effect instanceof AiEffect.Action action) || actions.size() >= MAX_ACTIONS) {
+                if (!(effect instanceof AiEffect.Action requested) || actions.size() >= MAX_ACTIONS
+                        || actions.stream().anyMatch(a -> a.kind() == requested.kind())) {
                     continue;
                 }
-                boolean allowed = facts.offeredActions().contains(action.kind().key())
-                        && (action.kind() != AiActionKind.WORK
-                        || action.chore().map(c -> facts.offeredChores().contains(c.key())).orElse(false))
-                        && (action.place().isEmpty() || facts.offeredPlaces().contains(action.place()))
-                        && (!holdsGrudge || ACTIONS_DESPITE_GRUDGE.contains(action.kind()));
-                if (allowed && actions.stream().noneMatch(a -> a.kind() == action.kind())) {
-                    // Helpers only for group-able actions, and only villagers shown as willing.
-                    List<String> helpers = !GROUP_ACTIONS.contains(action.kind()) ? List.of()
-                            : action.everyone() ? (facts.helpers().isEmpty() ? List.of() : List.of(AiEffect.Action.ALL))
-                            : action.helpers().stream().filter(h -> AiTurnFacts.contains(facts.helpers(), h)).toList();
-                    actions.add(new AiEffect.Action(action.kind(), action.chore(), action.amount(), action.item(),
-                            action.place(), helpers));
-                }
+                allowed(requested, facts, holdsGrudge).ifPresent(actions::add);
             }
         }
 
         return new AiOutcomePlan(decision, hearts, state, reaction, Collections.unmodifiableMap(dispositions), memory,
                 command, promise, wish, quest, unlock, opinion, directions, tradeMood, grudge, forgive, interjection,
                 gossip, List.copyOf(actions), reconcile, List.copyOf(life));
+    }
+
+    /**
+     * The action as the game will take it, or empty when it was not offered to this villager now: its
+     * kind and task were on the menu, its place was one the villager knows, a grudge does not forbid
+     * it, and helpers are only villagers shown as willing, for actions others can join. Pure.
+     */
+    static Optional<AiEffect.Action> allowed(AiEffect.Action action, AiTurnFacts facts, boolean holdsGrudge) {
+        boolean ok = facts.offeredActions().contains(action.kind().key())
+                && (action.kind() != AiActionKind.WORK
+                || action.chore().map(c -> facts.offeredChores().contains(c.key())).orElse(false))
+                && (action.place().isEmpty() || facts.offeredPlaces().contains(action.place()))
+                && (!holdsGrudge || ACTIONS_DESPITE_GRUDGE.contains(action.kind()));
+        if (!ok) {
+            return Optional.empty();
+        }
+        List<String> helpers = !GROUP_ACTIONS.contains(action.kind()) ? List.of()
+                : action.everyone() ? (facts.helpers().isEmpty() ? List.of() : List.of(AiEffect.Action.ALL))
+                : action.helpers().stream().filter(h -> AiTurnFacts.contains(facts.helpers(), h)).toList();
+        return Optional.of(new AiEffect.Action(action.kind(), action.chore(), action.amount(), action.item(),
+                action.place(), helpers));
     }
 
     private static boolean noneOf(List<AiEffect> effects, Class<? extends AiEffect> type) {

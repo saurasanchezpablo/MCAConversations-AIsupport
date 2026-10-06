@@ -18,15 +18,33 @@ public final class VoiceScript {
     /**
      * The language note: speak the line in the language it is written in (the model replies in the
      * player's language, but a player may write in another, and scripted lines may not be translated),
-     * with the accent this player's game language implies for Spanish and English.
+     * with the accent this player's game language implies when the line is in that language.
      */
     public static String languageNote(String code) {
-        String c = code == null ? "" : code.toLowerCase(Locale.ROOT);
-        String spanish = c.startsWith("es") && !c.equals("es_es")
-                ? "a natural Latin American Spanish accent" : "a natural accent from Spain";
-        String english = c.equals("en_gb") ? "a natural British accent" : "a natural American accent";
-        return "Speak the line in the language it is written in, as a native speaker: if it is Spanish, use "
-                + spanish + "; if it is English, use " + english + ".";
+        String c = GameLanguage.normalise(code);
+        String language = GameLanguage.plainName(c);
+        String note = "Speak the line in the language it is written in, as a native speaker of that language.";
+        if (language == null) {
+            return note;
+        }
+        return note + " The listener's game is in " + language + ": if the line is in " + language + ", use "
+                + accent(c, language) + ".";
+    }
+
+    /** The accent a game language implies, for the languages the game ships in regional forms. */
+    static String accent(String code, String language) {
+        return switch (GameLanguage.base(code)) {
+            case "es" -> code.equals("es_es") || code.equals("esan") ? "a natural accent from Spain"
+                    : "a natural Latin American Spanish accent";
+            case "en" -> code.equals("en_gb") ? "a natural British accent" : code.equals("en_au") || code.equals("en_nz")
+                    ? "a natural Australian accent" : code.equals("en_ca") ? "a natural Canadian accent"
+                    : "a natural American accent";
+            case "pt" -> code.equals("pt_pt") ? "a natural accent from Portugal" : "a natural Brazilian accent";
+            case "fr" -> code.equals("fr_ca") ? "a natural Quebec French accent" : "a natural accent from France";
+            case "de" -> code.equals("de_at") ? "a natural Austrian accent" : code.equals("de_ch")
+                    ? "a natural Swiss German accent" : "a natural accent from Germany";
+            default -> "a natural native " + language + " accent";
+        };
     }
 
     /** The full brief: who is speaking, in what language, feeling what, meaning what, and how. */

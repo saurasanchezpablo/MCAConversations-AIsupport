@@ -60,4 +60,11 @@ class AiInitiativeTest {
         assertTrue(instruction.startsWith("[Steve has not said anything."));
         assertTrue(instruction.contains("you heard Steve was kind to Bob"));
     }
+
+    @Test
+    void staleCooldownsArePruned() {
+        java.util.Map<String, Long> last = new java.util.HashMap<>(java.util.Map.of("old", 0L, "fresh", 900L, "future", 5_000L));
+        AiInitiative.pruneStale(last, 1_000, 500);
+        assertEquals(java.util.Set.of("fresh"), last.keySet());
+    }
 }

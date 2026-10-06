@@ -65,8 +65,7 @@ final class AiActions {
                                 AiSocial.Turn turn, long now) {
         List<Entity> helpers = helpers(villager, player, action, turn);
         if (!helpers.isEmpty()) {
-            group(villager, player, villagerName, action, turn, helpers, now);
-            return Result.ok(action.kind());
+            return group(villager, player, villagerName, action, turn, helpers, now);
         }
         AiActionKind kind = action.kind();
         switch (kind) {
@@ -74,7 +73,7 @@ final class AiActions {
             case INVENTORY -> later(villager, player, "inventory", now);
             // The player chooses what to give, from their whole inventory, in the gift window.
             case GIFT -> AiTasks.schedule(now + SCREEN_DELAY_TICKS, () -> {
-                if (villager.isAlive() && !player.hasDisconnected() && villager.distanceTo(player) <= 8) {
+                if (within(villager, player)) {
                     AiGiftMenu.open(player, villager);
                 }
             });
@@ -115,6 +114,7 @@ final class AiActions {
             case STOP_WORK -> {
                 AiWork.stop(villager.getUUID(), true);
                 AiErrands.stop(villager.getUUID());
+                AiBuild.stop(villager.getUUID());
                 McaHandles.runInteraction(villager, player, "stopworking");
             }
             case GUIDE, WAIT_AT, PICK_UP, STORE, FETCH, BREED -> {
@@ -124,7 +124,7 @@ final class AiActions {
             }
             // The player puts what to cook (and any fuel) in the cooking window; the errand starts when it closes.
             case COOK -> AiTasks.schedule(now + SCREEN_DELAY_TICKS, () -> {
-                if (villager.isAlive() && !player.hasDisconnected() && villager.distanceTo(player) <= 8) {
+                if (within(villager, player)) {
                     AiHandoverMenu.open(player, villager, "mcaconversations.ai.cook_title", 1, handed ->
                             AiErrands.startCook(villager, player, handed, villagerName, player.serverLevel().getGameTime()));
                 }
@@ -143,6 +143,15 @@ final class AiActions {
 
     private static Issue generic() {
         return new Issue("you could not do it right now", AiLines.variant("cannot.generic"));
+    }
+
+    /**
+     * Whether a window can still open for this player a moment later: the villager alive and near, the
+     * player still this living, connected player (a respawn makes a new player object).
+     */
+    private static boolean within(Entity villager, ServerPlayer player) {
+        return villager.isAlive() && player.isAlive() && !player.isRemoved() && !player.hasDisconnected()
+                && villager.distanceTo(player) <= 8;
     }
 
     enum Work { STARTED, NEEDS_TOOL, REFUSED }
@@ -167,7 +176,7 @@ final class AiActions {
         }
         // After the villager has asked for it (their line comes first, rewritten if need be).
         AiTasks.schedule(now + (speak ? SCREEN_DELAY_TICKS + 20 : 100), () -> {
-            if (villager.isAlive() && !player.hasDisconnected() && villager.distanceTo(player) <= 8) {
+            if (within(villager, player)) {
                 AiHandoverMenu.open(player, villager, "mcaconversations.ai.tool_title", 1,
                         handed -> lend(villager, player, villagerName, handed));
             }
@@ -178,27 +187,28 @@ final class AiActions {
     /**
      * Puts what the player hands over straight into the villager's own inventory (a loan, not a gift
      * MCA would consume), and starts the job they were waiting for if they now have the tool. Whatever
-     * does not fit is given back. Returns true once anything was taken.
+     * does not fit is given back. The handed stacks are left empty either way, so a caller never gives
+     * them back a second time. Returns false when the villager has no inventory to take them.
      */
     static boolean lend(Entity villager, ServerPlayer player, String villagerName, List<ItemStack> handed) {
         Container inventory = McaHandles.inventory(villager);
         if (inventory == null) {
+            handed.forEach(stack -> AiErrands.giveBack(player, villager, stack.split(stack.getCount())));
             return false;
         }
         boolean took = false;
         AiLivesSavedData lives = player.getServer() == null ? null : AiLivesSavedData.get(player.getServer());
         for (ItemStack stack : handed) {
             int before = stack.getCount();
+            String id = String.valueOf(BuiltInRegistries.ITEM.getKey(stack.getItem()));
             ItemStack rest = AiErrands.insert(inventory, stack.copy());
+            stack.setCount(rest.getCount()); // what went in is the villager's to hold now
             took |= rest.getCount() < before;
             if (lives != null && rest.getCount() < before) {
                 // A loan: taking it back later is the player's right, not theft.
-                lives.addLoan(villager.getUUID(), player.getUUID(),
-                        String.valueOf(BuiltInRegistries.ITEM.getKey(stack.getItem())), before - rest.getCount());
+                lives.addLoan(villager.getUUID(), player.getUUID(), id, before - rest.getCount());
             }
-            if (!rest.isEmpty()) {
-                player.getInventory().placeItemBackInInventory(rest);
-            }
+            AiErrands.giveBack(player, villager, stack.split(stack.getCount()));
         }
         inventory.setChanged();
         long now = player.serverLevel().getGameTime();
@@ -206,7 +216,7 @@ final class AiActions {
             AiConversations.markReceived(villager.getUUID(), player.getUUID(), now);
         }
         if (!AiWork.resumeIfReady(villager, player, villagerName, now)) {
-            AiWork.awaiting(villager.getUUID()).ifPresentOrElse(chore -> AiLines.say(villager, player,
+            AiWork.awaiting(villager.getUUID(), now).ifPresentOrElse(chore -> AiLines.say(villager, player,
                             AiLines.variant("work_no_tool", Component.translatable("mcaconversations.ai.tool." + chore.key())),
                             villagerName, AiEmotion.NEUTRAL, VoiceIntent.STATEMENT),
                     () -> AiLines.say(villager, player, AiLines.variant("tool_thanks"), villagerName, AiEmotion.GRATEFUL,
@@ -240,6 +250,7 @@ final class AiActions {
             return 0;
         }
         int given = 0;
+        AiLivesSavedData lives = player.getServer() == null ? null : AiLivesSavedData.get(player.getServer());
         for (int i = 0; i < inventory.getContainerSize(); i++) {
             ItemStack stack = inventory.getItem(i);
             if (stack.isEmpty() || stack.isDamageableItem()) {
@@ -254,6 +265,11 @@ final class AiActions {
             }
             ItemStack taken = inventory.removeItemNoUpdate(i);
             given += taken.getCount();
+            if (lives != null) {
+                // Whatever of it this player had lent comes back to them: the loan is settled.
+                lives.returnLoan(villager.getUUID(), player.getUUID(),
+                        String.valueOf(BuiltInRegistries.ITEM.getKey(taken.getItem())), taken.getCount());
+            }
             if (!player.getInventory().add(taken) && !taken.isEmpty()) {
                 player.drop(taken, false);
             }
@@ -278,49 +294,77 @@ final class AiActions {
         return out;
     }
 
-    /** Several villagers at once: each helper says it is coming, then everyone does the thing. */
-    private static void group(Entity leader, ServerPlayer player, String leaderName, AiEffect.Action action,
-                              AiSocial.Turn turn, List<Entity> helpers, long now) {
+    /**
+     * Several villagers at once: each helper says it is coming, then everyone does the thing. Fails, as
+     * the single-villager case would, when nobody at all could do it.
+     */
+    private static Result group(Entity leader, ServerPlayer player, String leaderName, AiEffect.Action action,
+                                AiSocial.Turn turn, List<Entity> helpers, long now) {
+        AiActionKind kind = action.kind();
         List<Entity> everyone = new java.util.ArrayList<>();
         everyone.add(leader);
         everyone.addAll(helpers);
-        List<Entity> unable = List.of();
-        switch (action.kind()) {
+        List<Entity> unable = new java.util.ArrayList<>();
+        Result result = Result.ok(kind);
+        switch (kind) {
             case WORK -> {
                 AiChore chore = action.chore().orElse(null);
                 if (chore == null) {
-                    return;
+                    return Result.failed(kind, generic());
                 }
                 unable = AiWork.startGroup(everyone, player, chore, action.amount(), now);
-                for (int i = 0; i < unable.size(); i++) {
-                    Entity e = unable.get(i);
-                    AiLines.sayLater(e, player, AiLines.variant("work_no_tool",
-                                    Component.translatable("mcaconversations.ai.tool." + chore.key())), name(e), now,
-                            25L * (i + 1), AiEmotion.NEUTRAL, VoiceIntent.STATEMENT);
+                Component tool = Component.translatable("mcaconversations.ai.tool." + chore.key());
+                if (unable.size() >= everyone.size()) {
+                    // Nobody got going: the leader's line is rewritten to say so, and only helpers add theirs.
+                    result = everyone.stream().anyMatch(e -> AiWork.hasTool(e, chore)) ? Result.failed(kind, generic())
+                            : Result.failed(kind, new Issue("none of you has a " + chore.tool() + " to do it, so nobody "
+                            + "could start", AiLines.variant("work_no_tool", tool)));
+                }
+                int n = 0;
+                for (Entity e : unable) {
+                    if (e == leader && !result.done()) {
+                        continue;
+                    }
+                    AiLines.sayLater(e, player, AiWork.hasTool(e, chore) ? AiLines.variant("cannot.generic")
+                                    : AiLines.variant("work_no_tool", tool), name(e), now,
+                            25L * (++n), AiEmotion.NEUTRAL, VoiceIntent.STATEMENT);
                 }
             }
             case PICK_UP, BREED -> {
                 for (Entity e : everyone) {
-                    AiErrands.start(e, player, action, turn, name(e), e == leader, now);
+                    if (!AiErrands.start(e, player, action, turn, name(e), e == leader, now)) {
+                        unable.add(e);
+                    }
+                }
+                if (unable.size() >= everyone.size()) {
+                    result = Result.failed(kind, generic());
                 }
             }
             case BUILD -> openBuild(leader, player, action, helpers, now);
             case FOLLOW, STAY, MOVE, GO_HOME -> {
-                String command = switch (action.kind()) {
+                String command = switch (kind) {
                     case FOLLOW -> "FOLLOW";
                     case STAY -> "STAY";
                     case MOVE -> "MOVE";
                     default -> "gohome";
                 };
                 for (Entity e : everyone) {
-                    if (action.kind() != AiActionKind.STAY) {
+                    if (kind != AiActionKind.STAY) {
                         VillagerAttention.release(e);
                     }
-                    McaHandles.runInteraction(e, player, command);
+                    if (!McaHandles.runInteraction(e, player, command)) {
+                        unable.add(e);
+                    }
+                }
+                if (kind == AiActionKind.STAY && unable.size() >= everyone.size()) {
+                    result = Result.failed(kind, generic()); // as alone, only staying put reports MCA's refusal
                 }
             }
-            default -> apply(leader, player, leaderName, new AiEffect.Action(action.kind(), action.chore(), action.amount(),
-                    action.item(), action.place()), turn, now);
+            default -> result = apply(leader, player, leaderName, new AiEffect.Action(kind, action.chore(),
+                    action.amount(), action.item(), action.place()), turn, now);
+        }
+        if (!result.done()) {
+            return result;
         }
         int i = 0;
         for (Entity helper : helpers) {
@@ -329,12 +373,13 @@ final class AiActions {
                         AiEmotion.HAPPY, VoiceIntent.STATEMENT);
             }
         }
+        return result;
     }
 
     /** The materials window; the build starts when it closes, with whoever was brought in to help. */
     private static void openBuild(Entity leader, ServerPlayer player, AiEffect.Action action, List<Entity> helpers, long now) {
         AiTasks.schedule(now + SCREEN_DELAY_TICKS, () -> {
-            if (leader.isAlive() && !player.hasDisconnected() && leader.distanceTo(player) <= 8) {
+            if (within(leader, player)) {
                 AiHandoverMenu.open(player, leader, "mcaconversations.ai.build_title", 3, handed ->
                         AiBuild.start(leader, helpers.stream().filter(Entity::isAlive).toList(), player, action.item(), handed,
                                 player.serverLevel().getGameTime()));
@@ -348,7 +393,7 @@ final class AiActions {
 
     private static void later(Entity villager, ServerPlayer player, String command, long now) {
         AiTasks.schedule(now + SCREEN_DELAY_TICKS, () -> {
-            if (villager.isAlive() && !player.hasDisconnected() && villager.distanceTo(player) <= 8) {
+            if (within(villager, player)) {
                 McaHandles.runInteraction(villager, player, command);
             }
         });
@@ -361,6 +406,7 @@ final class AiActions {
             return 0;
         }
         int left = amount;
+        AiLivesSavedData lives = player.getServer() == null ? null : AiLivesSavedData.get(player.getServer());
         for (int i = 0; i < inventory.getContainerSize() && left > 0; i++) {
             ItemStack stack = inventory.getItem(i);
             if (stack.isEmpty() || !AiPromises.matches(itemId, stack)) {
@@ -368,11 +414,24 @@ final class AiActions {
             }
             ItemStack taken = stack.split(Math.min(left, stack.getCount()));
             left -= taken.getCount();
+            if (lives != null) {
+                // Handing back what this player lent settles the loan.
+                lives.returnLoan(villager.getUUID(), player.getUUID(),
+                        String.valueOf(BuiltInRegistries.ITEM.getKey(taken.getItem())), taken.getCount());
+            }
             if (!player.getInventory().add(taken) && !taken.isEmpty()) {
                 player.drop(taken, false);
             }
         }
         inventory.setChanged();
-        return amount - left;
+        int given = amount - left;
+        if (given > 0) {
+            // Without the tool they were working with, the job is over (the tool may have gone back to its owner).
+            AiWork.job(villager.getUUID()).filter(j -> !AiWork.hasTool(villager, j.chore)).ifPresent(j -> {
+                AiWork.stop(villager.getUUID(), true);
+                McaHandles.runInteraction(villager, player, "stopworking");
+            });
+        }
+        return given;
     }
 }

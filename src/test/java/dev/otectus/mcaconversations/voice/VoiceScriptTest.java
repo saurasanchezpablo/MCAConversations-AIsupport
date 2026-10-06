@@ -45,6 +45,28 @@ class VoiceScriptTest {
         assertTrue(VoiceScript.languageNote("en_gb").contains("British"));
         assertTrue(VoiceScript.languageNote("es_es").contains("in the language it is written in"),
                 "a line is spoken in its own language, never forced into another");
+        assertTrue(VoiceScript.languageNote("de_de").contains("German"));
+        assertTrue(VoiceScript.languageNote("fr_ca").contains("Quebec"));
+        assertTrue(VoiceScript.languageNote("ja_jp").contains("Japanese"));
+        assertTrue(VoiceScript.languageNote("xx_zz").contains("in the language it is written in"));
+    }
+
+    @Test
+    void everyGameLanguageHasAName() {
+        assertEquals("German (Germany)", GameLanguage.name("de_de"));
+        assertEquals("German", GameLanguage.plainName("de_at"));
+        assertEquals("Spanish (Mexico)", GameLanguage.name("es_mx"));
+        assertEquals("Spanish", GameLanguage.plainName("es_es"));
+        assertEquals("Portuguese (Brazil)", GameLanguage.name("pt_br"));
+        assertEquals("Japanese", GameLanguage.name("ja_jp"));
+        assertEquals("Simplified Chinese", GameLanguage.name("zh_cn"));
+        assertEquals("Traditional Chinese (Taiwan)", GameLanguage.name("zh_tw"));
+        assertEquals("Korean", GameLanguage.name("ko_kr"));
+        assertEquals("Russian", GameLanguage.name("ru_ru"));
+        assertEquals("English (pirate speak)", GameLanguage.name("en_pt"));
+        assertEquals("Asturian", GameLanguage.name("ast_es"));
+        assertEquals(null, GameLanguage.name("qqq_zz"));
+        assertEquals("English (United States)", GameLanguage.name(""));
     }
 
     @Test

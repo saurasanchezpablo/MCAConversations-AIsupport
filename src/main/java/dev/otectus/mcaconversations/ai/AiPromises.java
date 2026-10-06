@@ -1,6 +1,7 @@
 package dev.otectus.mcaconversations.ai;
 
 import dev.otectus.mcaconversations.McaConversations;
+import dev.otectus.mcaconversations.McaConversationsConfig;
 import dev.otectus.mcaconversations.compat.McaCompat;
 import dev.otectus.mcaconversations.conversation.DepthClass;
 import dev.otectus.mcaconversations.disposition.DispositionApply;
@@ -25,8 +26,9 @@ import java.util.Map;
  * player actually does: gifts count toward an item promise (several small gifts add up), talking to
  * the villager on or after the day keeps a promise to come back, and a promise still open a day after
  * it was due is broken. A wish is fulfilled by a gift of the wished-for item. Each outcome is felt
- * once: hearts through the guarded path (once ever per promise), a lingering mood, a memory the
- * villager will bring up, and, with MCA: Reputation, a deed the village hears about.
+ * once (settling is one-way): hearts through the guarded path (one payout of each kind per day, so
+ * promises never fill the pair's once-ever ledger), a lingering mood, a memory the villager will
+ * bring up, and, with MCA: Reputation, a deed the village hears about.
  */
 final class AiPromises {
 
@@ -100,6 +102,13 @@ final class AiPromises {
         String name = McaCompat.getVillagerName(villager).orElse(villager.getName().getString());
         for (AiPromise promise : pair.promises()) {
             if (promise.pending() && !promise.isVisit() && matches(promise.item(), stack)) {
+                if (promise.overdue(day)) {
+                    // Too late: it was broken before this gift came; the gift may still count elsewhere.
+                    AiPromise broken = promise.settle(AiPromise.State.BROKEN, day);
+                    data.edit(villager.getUUID(), player.getUUID()).updatePromise(broken);
+                    broken(server, villager, player, broken, now, day);
+                    continue;
+                }
                 AiPromise updated = promise.deliver(stack.getCount(), day);
                 data.edit(villager.getUUID(), player.getUUID()).updatePromise(updated);
                 if (updated.state() == AiPromise.State.KEPT) {
@@ -113,12 +122,14 @@ final class AiPromises {
         pair.wish(day).filter(w -> matches(w.item(), stack)).ifPresent(w -> {
             AiPairMemory edit = data.edit(villager.getUUID(), player.getUUID());
             edit.setWish(null);
-            AiHearts.grant(server, villager, player, "ai.wish." + w.createdDay(), WISH_HEARTS, DepthClass.STANDARD,
-                    ReplayPolicy.ONCE, 0, 0, "ai.wish@" + now, now);
+            if (McaConversationsConfig.aiRelationshipEffects()) {
+                AiHearts.grant(server, villager, player, "ai.wish", WISH_HEARTS, DepthClass.STANDARD,
+                        ReplayPolicy.ONCE_PER_DAY, 0, 0, "ai.wish." + w.createdDay() + "@" + now, now);
+            }
             StateTracker.apply(villager, player, ConversationState.GRATEFUL);
             edit.remember(new AiMemoryNote(player.getName().getString() + " remembered I wanted "
                     + AiContextFormat.words(w.item().replace("#", "")) + " and brought it to me.", AiImportance.HIGH),
-                    AiSentiment.STRONGLY_POSITIVE, day, dev.otectus.mcaconversations.McaConversationsConfig.aiMemoriesPerPair());
+                    AiSentiment.STRONGLY_POSITIVE, day, McaConversationsConfig.aiMemoriesPerPair());
             AiLines.say(villager, player, AiLines.variant("wish_fulfilled"), name, AiEmotion.GRATEFUL,
                     dev.otectus.mcaconversations.voice.VoiceIntent.THANK);
         });
@@ -127,13 +138,15 @@ final class AiPromises {
     private static void kept(MinecraftServer server, Entity villager, ServerPlayer player, AiPromise promise, int hearts,
                              long now, long day, boolean speak) {
         try {
-            AiHearts.grant(server, villager, player, "ai.promise.kept." + promise.id(), hearts, DepthClass.STANDARD,
-                    ReplayPolicy.ONCE, 0, 0, "ai.promise.kept." + promise.id() + "@" + now, now);
+            if (McaConversationsConfig.aiRelationshipEffects()) {
+                AiHearts.grant(server, villager, player, "ai.promise.kept", hearts, DepthClass.STANDARD,
+                        ReplayPolicy.ONCE_PER_DAY, 0, 0, "ai.promise.kept." + promise.id() + "@" + now, now);
+            }
             StateTracker.apply(villager, player, ConversationState.GRATEFUL);
             Dispositions.apply(villager, player, new DispositionApply("ai_promise", Map.of(DispositionAxis.TRUST, 3)));
             AiMemorySavedData.get(server).edit(villager.getUUID(), player.getUUID()).remember(
                     new AiMemoryNote(player.getName().getString() + " kept their promise: " + describe(promise) + ".",
-                            AiImportance.HIGH), AiSentiment.STRONGLY_POSITIVE, day, dev.otectus.mcaconversations.McaConversationsConfig.aiMemoriesPerPair());
+                            AiImportance.HIGH), AiSentiment.STRONGLY_POSITIVE, day, McaConversationsConfig.aiMemoriesPerPair());
             AiReputationLink.promise(player, villager, promise, AiReputationLink.PROMISE_KEPT, "kept");
             if (speak) {
                 String name = McaCompat.getVillagerName(villager).orElse(villager.getName().getString());
@@ -148,14 +161,16 @@ final class AiPromises {
     private static void broken(MinecraftServer server, Entity villager, ServerPlayer player, AiPromise promise,
                                long now, long day) {
         try {
-            AiHearts.grant(server, villager, player, "ai.promise.broken." + promise.id(), BROKEN_HEARTS,
-                    DepthClass.STANDARD, ReplayPolicy.ONCE, 0, 0, "ai.promise.broken." + promise.id() + "@" + now, now);
+            if (McaConversationsConfig.aiRelationshipEffects()) {
+                AiHearts.grant(server, villager, player, "ai.promise.broken", BROKEN_HEARTS, DepthClass.STANDARD,
+                        ReplayPolicy.ONCE_PER_DAY, 0, 0, "ai.promise.broken." + promise.id() + "@" + now, now);
+            }
             StateTracker.apply(villager, player, ConversationState.ANNOYED);
             Dispositions.apply(villager, player, new DispositionApply("ai_promise",
                     Map.of(DispositionAxis.TRUST, -4, DispositionAxis.TENSION, 3)));
             AiMemorySavedData.get(server).edit(villager.getUUID(), player.getUUID()).remember(
                     new AiMemoryNote(player.getName().getString() + " broke their promise: " + describe(promise) + ".",
-                            AiImportance.HIGH), AiSentiment.NEGATIVE, day, dev.otectus.mcaconversations.McaConversationsConfig.aiMemoriesPerPair());
+                            AiImportance.HIGH), AiSentiment.NEGATIVE, day, McaConversationsConfig.aiMemoriesPerPair());
             AiReputationLink.promise(player, villager, promise, AiReputationLink.PROMISE_BROKEN, "broken");
         } catch (Throwable t) {
             McaConversations.LOGGER.debug("AI promise-broken effects failed", t);

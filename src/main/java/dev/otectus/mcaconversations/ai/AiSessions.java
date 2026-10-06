@@ -41,6 +41,8 @@ public final class AiSessions {
         private final Deque<Line> transcript = new ArrayDeque<>();
         private long lastActivity;
         private boolean inFlight;
+        /** Which turn is in flight: a late reply of an older turn may not end a newer one. */
+        private long turn;
         private int positiveApplied;
         private int negativeApplied;
         private long serial;
@@ -98,6 +100,7 @@ public final class AiSessions {
 
     private final Map<AiMemoryStore.PairKey, Session> sessions = new HashMap<>();
     private final Map<UUID, Long> lastTurnByPlayer = new HashMap<>();
+    private long turns;
 
     /**
      * Decides whether a new turn may start now, and if so marks the pair in flight. A conversation
@@ -117,6 +120,7 @@ public final class AiSessions {
             session.reset();
         }
         session.inFlight = true;
+        session.turn = ++turns;
         session.lastActivity = now;
         lastTurnByPlayer.put(player, now);
         return Admission.ADMITTED;
@@ -131,6 +135,27 @@ public final class AiSessions {
     public void finish(UUID villager, UUID player, long now) {
         Session session = sessions.get(new AiMemoryStore.PairKey(villager, player));
         if (session != null) {
+            session.inFlight = false;
+            session.lastActivity = Math.max(session.lastActivity, now);
+        }
+    }
+
+    /** The turn last admitted for this pair (0 when none), to hand back to {@link #finish(UUID, UUID, long, long)}. */
+    public long currentTurn(UUID villager, UUID player) {
+        Session session = sessions.get(new AiMemoryStore.PairKey(villager, player));
+        return session == null ? 0 : session.turn;
+    }
+
+    /** Whether {@code turn} is still this pair's live turn (the player did not leave and come back meanwhile). */
+    public boolean isCurrent(UUID villager, UUID player, long turn) {
+        Session session = sessions.get(new AiMemoryStore.PairKey(villager, player));
+        return session != null && session.inFlight && session.turn == turn;
+    }
+
+    /** Ends turn {@code turn}; a stale call for an older turn leaves a newer one in flight. */
+    public void finish(UUID villager, UUID player, long now, long turn) {
+        Session session = sessions.get(new AiMemoryStore.PairKey(villager, player));
+        if (session != null && session.turn == turn) {
             session.inFlight = false;
             session.lastActivity = Math.max(session.lastActivity, now);
         }

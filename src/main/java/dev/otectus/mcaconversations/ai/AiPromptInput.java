@@ -45,6 +45,11 @@ public record AiPromptInput(String model, String systemPrompt, boolean inHouse, 
         offers = offers == null ? List.of() : List.copyOf(offers);
     }
 
+    /** Whether the villager could do something for the player this turn (a spoken action is on the menu). */
+    public boolean actionsOffered() {
+        return offers.stream().anyMatch(o -> o.startsWith("{\"type\": \"action\""));
+    }
+
     /** Without the social layer: no offers, nobody around. */
     public AiPromptInput(String model, String systemPrompt, boolean inHouse, boolean sessionTags,
                          boolean longTermMemoryTag, boolean sharedMemoryTag, String language, boolean jsonMode,

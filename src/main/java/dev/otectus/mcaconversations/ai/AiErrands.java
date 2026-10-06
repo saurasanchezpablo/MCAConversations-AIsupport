@@ -15,7 +15,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.BossEvent;
 import net.minecraft.world.Container;
-import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.animal.Animal;
@@ -24,6 +23,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BaseContainerBlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.phys.AABB;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -196,7 +196,10 @@ final class AiErrands {
                 bar, now);
         errand.station = found.get().station();
         errand.targetBlock = found.get().pos();
-        errand.inputs.addAll(inputs);
+        for (ItemStack stack : inputs) {
+            // Taken out of the handed stacks, so the window never gives back what the errand now holds.
+            errand.inputs.add(stack.split(stack.getCount()));
+        }
         ERRANDS.put(villager.getUUID(), errand);
         return true;
     }
@@ -209,8 +212,24 @@ final class AiErrands {
         Errand errand = ERRANDS.remove(villager);
         if (errand != null) {
             errand.bar.removeAllPlayers();
-            refund(errand, null, null);
+            MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+            ServerPlayer player = server == null ? null : server.getPlayerList().getPlayer(errand.player);
+            refund(errand, player, find(server, errand.villager));
         }
+    }
+
+    /** An entity by id in any loaded level, or null. */
+    static Entity find(MinecraftServer server, UUID id) {
+        if (server == null || id == null) {
+            return null;
+        }
+        for (ServerLevel level : server.getAllLevels()) {
+            Entity entity = level.getEntity(id);
+            if (entity != null) {
+                return entity;
+            }
+        }
+        return null;
     }
 
     /**
@@ -222,18 +241,32 @@ final class AiErrands {
         goods.addAll(errand.carried);
         errand.inputs.clear();
         errand.carried.clear();
-        for (ItemStack stack : goods) {
-            if (stack.isEmpty()) {
-                continue;
-            }
-            if (player != null && !player.hasDisconnected()) {
-                if (!player.getInventory().add(stack) && !stack.isEmpty()) {
+        goods.forEach(stack -> giveBack(player, villager, stack));
+    }
+
+    /**
+     * Hands one stack back: into the player's inventory while they are still in the world (also while
+     * logging out, as the inventory is saved after that), at their feet if they are dead, else where the
+     * villager is. Never silently gone: logged when neither is left.
+     */
+    static void giveBack(ServerPlayer player, Entity villager, ItemStack stack) {
+        if (stack.isEmpty()) {
+            return;
+        }
+        if (player != null && !player.isRemoved()) {
+            if (!player.isAlive() || !player.getInventory().add(stack)) {
+                if (!stack.isEmpty()) {
                     player.drop(stack, false);
                 }
-            } else if (villager != null && villager.isAlive()) {
-                villager.spawnAtLocation(stack);
             }
+            return;
         }
+        if (villager != null && !villager.isRemoved()) {
+            villager.spawnAtLocation(stack);
+            return;
+        }
+        McaConversations.LOGGER.warn("Could not give back {} x{}: neither its owner nor the villager is around",
+                BuiltInRegistries.ITEM.getKey(stack.getItem()), stack.getCount());
     }
 
     static Optional<String> progressText(Entity villager) {
@@ -257,9 +290,11 @@ final class AiErrands {
         for (Iterator<Errand> it = ERRANDS.values().iterator(); it.hasNext(); ) {
             Errand errand = it.next();
             boolean keep;
+            ServerPlayer player = null;
+            Entity entity = null;
             try {
-                ServerPlayer player = server.getPlayerList().getPlayer(errand.player);
-                Entity entity = player == null ? null : player.serverLevel().getEntity(errand.villager);
+                player = server.getPlayerList().getPlayer(errand.player);
+                entity = player == null ? null : player.serverLevel().getEntity(errand.villager);
                 boolean timedOut = now - errand.started >= TIMEOUT_TICKS + errand.cookTicks;
                 keep = player != null && entity instanceof Mob villager && villager.isAlive() && !timedOut
                         && step(player.serverLevel(), villager, player, errand, now);
@@ -268,15 +303,22 @@ final class AiErrands {
                     say(entity, player, "errand_gave_up",
                             McaCompat.getVillagerName(entity).orElse(entity.getName().getString()), "");
                 }
+                // Without the player MCA's "stopworking" cannot be sent (it needs one); the villager then stays
+                // on the prospecting chore, which has no task, until someone gives it another order.
                 if (!keep && player != null && entity != null && entity.isAlive()) {
                     McaHandles.runInteraction(entity, player, "stopworking");
                 }
                 if (!keep) {
-                    refund(errand, player, entity);
+                    refund(errand, player, entity != null ? entity : find(server, errand.villager));
                 }
             } catch (Throwable t) {
                 McaConversations.LOGGER.debug("AI errand failed; dropping it", t);
                 keep = false;
+                try {
+                    refund(errand, player, entity != null ? entity : find(server, errand.villager));
+                } catch (Throwable inner) {
+                    McaConversations.LOGGER.warn("AI errand failed and its goods could not be given back", inner);
+                }
             }
             if (!keep) {
                 errand.bar.removeAllPlayers();
@@ -465,6 +507,14 @@ final class AiErrands {
         }
         AiCooking.Plan plan = AiCooking.plan(level, e.station, e.inputs, McaHandles.inventory(villager));
         e.inputs.clear();
+        if (!plan.spent().isEmpty() && level.getServer() != null) {
+            // The villager's own fuel that burned may have been lent: it is gone, so the loan is too.
+            AiLivesSavedData lives = AiLivesSavedData.get(level.getServer());
+            for (ItemStack burned : plan.spent()) {
+                lives.writeOffLoan(villager.getUUID(), e.player,
+                        String.valueOf(BuiltInRegistries.ITEM.getKey(burned.getItem())), burned.getCount());
+            }
+        }
         e.carried.addAll(plan.results());
         e.carried.addAll(plan.leftovers());
         if (plan.cooked() == 0) {
@@ -573,20 +623,28 @@ final class AiErrands {
         return Optional.ofNullable(best);
     }
 
-    /** Puts as much of {@code stack} into the container as fits; returns the rest. */
+    /**
+     * Puts as much of {@code stack} into the container as fits, topping up matching stacks first and
+     * then empty slots, only where the container accepts it and never past its stack limit; returns
+     * the rest.
+     */
     static ItemStack insert(Container container, ItemStack stack) {
-        if (container instanceof SimpleContainer simple) {
-            return simple.addItem(stack);
-        }
-        for (int i = 0; i < container.getContainerSize() && !stack.isEmpty(); i++) {
-            ItemStack slot = container.getItem(i);
-            if (slot.isEmpty()) {
-                container.setItem(i, stack.copy());
-                stack.setCount(0);
-            } else if (ItemStack.isSameItemSameComponents(slot, stack) && slot.getCount() < slot.getMaxStackSize()) {
-                int move = Math.min(stack.getCount(), slot.getMaxStackSize() - slot.getCount());
-                slot.grow(move);
-                stack.shrink(move);
+        for (int pass = 0; pass < 2 && !stack.isEmpty(); pass++) {
+            for (int i = 0; i < container.getContainerSize() && !stack.isEmpty(); i++) {
+                if (!container.canPlaceItem(i, stack)) {
+                    continue;
+                }
+                ItemStack slot = container.getItem(i);
+                int limit = container.getMaxStackSize(stack);
+                if (pass == 0 && !slot.isEmpty() && ItemStack.isSameItemSameComponents(slot, stack)
+                        && slot.getCount() < limit) {
+                    int move = Math.min(stack.getCount(), limit - slot.getCount());
+                    slot.grow(move);
+                    stack.shrink(move);
+                    container.setItem(i, slot);
+                } else if (pass == 1 && slot.isEmpty()) {
+                    container.setItem(i, stack.split(Math.min(limit, stack.getCount())));
+                }
             }
         }
         return stack;
@@ -598,25 +656,38 @@ final class AiErrands {
 
     static void forgetPlayer(UUID player) {
         // The player is leaving: an errand ends, and its goods are left where the villager stands.
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
         ERRANDS.values().removeIf(e -> {
             if (e.player.equals(player)) {
                 e.bar.removeAllPlayers();
+                refund(e, null, find(server, e.villager));
                 return true;
             }
             return false;
         });
     }
 
-    /** As {@link #forgetPlayer}, giving back what an errand held for them while they are still here. */
+    /**
+     * As {@link #forgetPlayer}, giving back what an errand held for them while they are still here (at
+     * logout the player is not yet removed, and their inventory is saved after this), and taking the
+     * villager off the errand chore while there is still a player to send MCA's command as.
+     */
     static void forgetPlayer(ServerPlayer player) {
+        MinecraftServer server = player.getServer();
         ERRANDS.values().removeIf(e -> {
             if (e.player.equals(player.getUUID())) {
                 e.bar.removeAllPlayers();
-                refund(e, player, null);
+                Entity villager = find(server, e.villager);
+                if (villager != null && villager.isAlive()) {
+                    McaHandles.runInteraction(villager, player, "stopworking");
+                }
+                refund(e, player, villager);
                 return true;
             }
             return false;
         });
+        // AiConversations hands AiWork only the player's id on logout; its mining jobs need the player too.
+        AiWork.forgetPlayer(player);
     }
 
     static void reset() {

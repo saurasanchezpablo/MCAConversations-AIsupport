@@ -138,6 +138,15 @@ public final class AiConversations {
             return CompletableFuture.completedFuture(Optional.empty());
         }
 
+        long turnId = SESSIONS.currentTurn(villagerId, playerId);
+        if (!opener) {
+            // Anything said while the villager was still answering comes first, in the order it was said.
+            String pending = QUEUED.remove(villagerId + "/" + playerId);
+            if (pending != null) {
+                message = joinLines(pending, message);
+            }
+        }
+        String said = message;
         try {
             // An opening line is the villager's own initiative: it is heard, not judged. Nothing the
             // player has not yet said can move hearts, leave a state or make a promise.
@@ -173,7 +182,7 @@ public final class AiConversations {
                     policy.memoriesPerPair() > 0 ? memoryData.recall(villagerId, playerId, day, PROMPT_MEMORIES) : List.of(),
                     day,
                     commands.stream().map(c -> new AiPromptInput.CommandOption(c.id(), c.description())).toList(),
-                    session.transcript(), message, AiSocial.offers(turn), !turn.bystanderIds().isEmpty());
+                    session.transcript(), said, AiSocial.offers(turn), !turn.bystanderIds().isEmpty());
             String body = AiPromptBuilder.body(input);
             if (McaConversationsConfig.debugAi()) {
                 McaConversations.LOGGER.info("[ai] request villager={} player={} chars={} memories={} commands={}",
@@ -181,34 +190,103 @@ public final class AiConversations {
             }
 
             Duration timeout = Duration.ofSeconds(McaConversationsConfig.aiRequestTimeoutSeconds());
+            // What the player asked for and what the villager answered is read by the model, in any
+            // language: from the reply itself, or, when the reply leaves it out, by a second short request.
+            boolean judgeable = !opener && policy.gameplayEffects() && input.actionsOffered();
+            List<AiSessions.Line> transcript = session.transcript();
+            java.util.concurrent.Executor onServer = onServer(server);
             return transport.send(settings.endpoint(), settings.tokenFor(playerName), body, timeout)
                     .exceptionally(t -> AiHttpResult.failed("network_error"))
-                    .thenApplyAsync(result -> complete(server, playerId, villagerId, villagerName, message, result,
-                            policy, offered, settings, turn, opener), server)
+                    .thenApplyAsync(result -> read(server, playerId, villagerName, result), onServer)
+                    .thenCompose(reply -> reply.isPresent() && judgeable && AiJudge.wanted(reply.get(), true)
+                            ? AiJudge.read(settings, new AiJudge.Exchange(villagerName, playerName, transcript, said,
+                                    reply.get().dialogue(), turn.actionOffers()))
+                            .thenApply(reading -> {
+                                if (McaConversationsConfig.debugAi()) {
+                                    McaConversations.LOGGER.info("[ai] judged villager={} reading={}", villagerId,
+                                            reading.map(Object::toString).orElse("failed"));
+                                }
+                                return reading.map(reply.get()::withUnderstanding).or(() -> reply);
+                            })
+                            : CompletableFuture.completedFuture(reply))
+                    .thenApplyAsync(reply -> complete(server, playerId, villagerId, villagerName, said, reply,
+                            policy, offered, settings, turn, opener, turnId), onServer)
                     .exceptionally(t -> {
                         McaConversations.LOGGER.error("AI conversation turn failed; nothing was applied", t);
-                        server.execute(() -> {
-                            SESSIONS.finish(villagerId, playerId, now);
-                            drainQueued(server, villagerId, playerId, now);
-                        });
+                        // Only this turn is ended: a newer one admitted meanwhile stays in flight.
+                        onServer.execute(() -> end(server, villagerId, playerId, turnId));
                         return Optional.empty();
                     });
         } catch (RuntimeException | Error t) {
             // Never leave the pair stuck "in flight" because building the request threw.
-            SESSIONS.finish(villagerId, playerId, now);
-            drainQueued(server, villagerId, playerId, now);
+            end(server, villagerId, playerId, turnId);
             throw t;
         }
     }
 
-    /** Step 3, on the server thread. */
+    /**
+     * Runs a task on the server thread, and only there. During shutdown the server runs submitted tasks
+     * on the caller's thread (a transport thread, while worlds are being saved); those are dropped.
+     */
+    static java.util.concurrent.Executor onServer(MinecraftServer server) {
+        return task -> server.execute(() -> {
+            if (server.isSameThread()) {
+                task.run();
+            }
+        });
+    }
+
+    /** Ends turn {@code turnId} of this pair and lets the next queued line through. Server thread. */
+    private static void end(MinecraftServer server, UUID villagerId, UUID playerId, long turnId) {
+        if (!SESSIONS.isCurrent(villagerId, playerId, turnId)) {
+            return; // already ended, or the player left and came back: not ours to end
+        }
+        long now = server.overworld().getGameTime();
+        SESSIONS.finish(villagerId, playerId, now, turnId);
+        drainQueued(server, villagerId, playerId, now);
+    }
+
+    /** Two things the player said, oldest first, within the length a message may have (the newest is kept whole). */
+    static String joinLines(String older, String newer) {
+        String last = AiText.clean(newer, MAX_PLAYER_MESSAGE);
+        int room = MAX_PLAYER_MESSAGE - last.codePointCount(0, last.length()) - 1;
+        if (room <= 0) {
+            return last;
+        }
+        String first = AiText.clean(older, room);
+        return first.isEmpty() ? last : first + " " + last;
+    }
+
+    /** Step 3a, on the server thread: the reply, or empty (the player has been told why) when there is none. */
+    private static Optional<AiReply> read(MinecraftServer server, UUID playerId, String villagerName, AiHttpResult result) {
+        ServerPlayer player = server.getPlayerList().getPlayer(playerId);
+        long now = player != null ? player.level().getGameTime() : server.overworld().getGameTime();
+        if (result.error().isPresent()) {
+            if (player != null) {
+                notifyFailure(player, villagerName, result.error().get(), now);
+            }
+            return Optional.empty();
+        }
+        Optional<AiReply> parsed = AiReplyParser.parse(result.content().orElse(""));
+        if (parsed.isEmpty() && player != null) {
+            notifyFailure(player, villagerName, "malformed_response", now);
+        }
+        return parsed;
+    }
+
+    /** Step 3b, on the server thread. */
     private static Optional<String> complete(MinecraftServer server, UUID playerId, UUID villagerId, String villagerName,
-                                             String message, AiHttpResult result, AiPolicy policy, Set<String> offered,
-                                             McaChatAi.Settings settings, AiSocial.Turn turn, boolean opener) {
+                                             String message, Optional<AiReply> parsed, AiPolicy policy, Set<String> offered,
+                                             McaChatAi.Settings settings, AiSocial.Turn turn, boolean opener,
+                                             long turnId) {
         ServerPlayer player = server.getPlayerList().getPlayer(playerId);
         Entity villager = player == null ? null : player.serverLevel().getEntity(villagerId);
         long now = villager != null ? villager.level().getGameTime() : server.overworld().getGameTime();
+        boolean repairing = false;
         try {
+            if (!SESSIONS.isCurrent(villagerId, playerId, turnId)) {
+                return Optional.empty(); // the player left and came back: this reply belongs to a conversation now over
+            }
             if (player == null || villager == null || player.isRemoved() || villager.isRemoved()
                     || !villager.isAlive() || player.distanceTo(villager) > MAX_REPLY_DISTANCE) {
                 // The player left, the villager unloaded, died or changed dimension: the turn is void.
@@ -218,16 +296,17 @@ public final class AiConversations {
                 }
                 return Optional.empty();
             }
-            if (result.error().isPresent()) {
-                notifyFailure(player, villagerName, result.error().get(), now);
-                return Optional.empty();
-            }
-            Optional<AiReply> parsed = AiReplyParser.parse(result.content().orElse(""));
             if (parsed.isEmpty()) {
-                notifyFailure(player, villagerName, "malformed_response", now);
-                return Optional.empty();
+                return Optional.empty(); // the failure was already reported
             }
             AiReply reply = parsed.get();
+            if (reply.understanding().isEmpty() && !opener
+                    && !AiIntent.LANGUAGES.contains(dev.otectus.mcaconversations.voice.GameLanguage.base(
+                    AiVoice.clientLanguage(player)))) {
+                // No reading of the exchange, and the phrase lists only know Spanish and English: rather than
+                // guess from look-alike words in another language, only the model's own actions run.
+                reply = reply.withUnderstanding(AiUnderstanding.NOTHING);
+            }
             AiOutcomePlan plan = AiOutcomePlan.of(reply, policy, turn.facts());
             AiSessions.Session session = SESSIONS.session(villagerId, playerId);
             long day = AffectionMath.dayOf(now);
@@ -243,8 +322,9 @@ public final class AiConversations {
             List<AiActions.Issue> issues = new java.util.ArrayList<>(AiConsistency.issues(decision, results, turn.facts(),
                     player.getName().getString(), villager));
             // Nor may they claim to have been given what they were not.
-            AiConsistency.receipt(reply.dialogue(), chore -> AiWork.hasTool(villager, chore),
-                    receivedRecently(villagerId, playerId, now), player.getName().getString()).ifPresent(issues::add);
+            AiConsistency.receipt(reply, item -> AiWork.holds(villager, item), AiWork::toolFor,
+                    chore -> AiWork.hasTool(villager, chore), receivedRecently(villagerId, playerId, now),
+                    player.getName().getString()).ifPresent(issues::add);
             // The player talked them into making peace with a neighbour.
             plan.reconcile().ifPresent(with -> {
                 try {
@@ -267,7 +347,9 @@ public final class AiConversations {
                         decision.refused(), issues.stream().map(AiActions.Issue::why).toList());
             }
             if (!issues.isEmpty()) {
-                repair(server, settings, player, villager, villagerName, message, reply, turn, issues);
+                // The turn stays in flight until the true line is said, so nothing overtakes it.
+                repair(server, settings, player, villager, villagerName, message, reply, turn, issues, opener, turnId);
+                repairing = true;
                 return Optional.empty();
             }
             // How the line should sound, sent ahead of MCA delivering it.
@@ -294,8 +376,9 @@ public final class AiConversations {
             }
             return Optional.of(reply.dialogue());
         } finally {
-            SESSIONS.finish(villagerId, playerId, now);
-            drainQueued(server, villagerId, playerId, now);
+            if (!repairing) {
+                end(server, villagerId, playerId, turnId);
+            }
         }
     }
 
@@ -306,10 +389,11 @@ public final class AiConversations {
      */
     private static void repair(MinecraftServer server, McaChatAi.Settings settings, ServerPlayer player, Entity villager,
                                String villagerName, String message, AiReply reply, AiSocial.Turn turn,
-                               List<AiActions.Issue> issues) {
+                               List<AiActions.Issue> issues, boolean opener, long turnId) {
         UUID playerId = player.getUUID();
         UUID villagerId = villager.getUUID();
         List<String> truths = issues.stream().map(AiActions.Issue::why).distinct().toList();
+        java.util.concurrent.Executor onServer = onServer(server);
         AiRepair.rewrite(settings, villagerName, player.getName().getString(), replyLanguage(player, settings.language()),
                         reply.dialogue(), truths)
                 .thenAcceptAsync(fixed -> {
@@ -325,15 +409,30 @@ public final class AiConversations {
                                     reply.dialogue(), fixed.get());
                         }
                         AiVoice.direct(live, speaker, fixed.get(), reply.emotion(), reply.deliveryOrDefault(), turn.facts());
-                        session.recordExchange(message, fixed.get());
+                        record(session, opener, message, fixed.get());
                         deliver(server, playerId, villagerId, fixed.get());
                     } else {
                         AiActions.Issue first = issues.get(0);
-                        session.recordExchange(message, first.fallback().getString());
+                        // The scripted line is translated on the player's client; the transcript keeps what it meant.
+                        record(session, opener, message, "[" + first.why() + "]");
                         AiLines.say(speaker, live, first.fallback(), villagerName, AiEmotion.NEUTRAL,
                                 dev.otectus.mcaconversations.voice.VoiceIntent.STATEMENT);
                     }
-                }, server);
+                }, onServer)
+                .whenComplete((ignored, t) -> {
+                    if (t != null) {
+                        McaConversations.LOGGER.error("AI line repair failed; the line was not said", t);
+                    }
+                    onServer.execute(() -> end(server, villagerId, playerId, turnId));
+                });
+    }
+
+    private static void record(AiSessions.Session session, boolean opener, String message, String line) {
+        if (opener) {
+            session.recordOpening(line);
+        } else {
+            session.recordExchange(message, line);
+        }
     }
 
     /** The validated life effects of a reply; each one is checked again against the game as it is applied. */
@@ -429,12 +528,11 @@ public final class AiConversations {
         return autoConversations() || aiOnly();
     }
 
-    /** The villager this player is in an AI conversation with, if it is still live. */
     /** What a player said while the villager was still answering, heard once the villager is free. */
     private static final Map<String, String> QUEUED = new HashMap<>();
 
     private static void queue(MinecraftServer server, UUID villager, UUID player, String message, long now) {
-        QUEUED.merge(villager + "/" + player, message, (a, b) -> AiText.clean(a + " " + b, MAX_PLAYER_MESSAGE));
+        QUEUED.merge(villager + "/" + player, message, AiConversations::joinLines);
         // If the villager is merely in its short cooldown, nothing will finish to wake the queue: wake it.
         if (!SESSIONS.inFlight(villager, player)) {
             drainQueued(server, villager, player, now);
@@ -467,6 +565,9 @@ public final class AiConversations {
     /** The player really handed this villager something (gift window, lend window, bag, MCA gift). */
     static void markReceived(UUID villager, UUID player, long now) {
         RECEIVED.put(villager + "/" + player, now);
+        if (RECEIVED.size() > 256) {
+            RECEIVED.values().removeIf(at -> now - at > RECEIVED_WINDOW || at > now);
+        }
     }
 
     static boolean receivedRecently(UUID villager, UUID player, long now) {
@@ -735,22 +836,38 @@ public final class AiConversations {
 
     /** Every server tick: delayed effects, and villagers deciding to start a conversation. */
     public static void tick(MinecraftServer server) {
-        AiTasks.drain(server.overworld().getGameTime());
+        guarded("tasks", () -> AiTasks.drain(server.overworld().getGameTime()));
         if (server.getTickCount() % 20 == 0) {
-            expirePartners(server, server.overworld().getGameTime());
+            guarded("partners", () -> expirePartners(server, server.overworld().getGameTime()));
         }
-        AiWork.tick(server);
-        AiErrands.tick(server);
+        guarded("work", () -> AiWork.tick(server));
+        guarded("errands", () -> AiErrands.tick(server));
         if (enabled()) {
-            AiVillageEvents.tick(server);
-            AiBubbles.tick(server);
-            AiDates.tick(server);
-            AiBuild.tick(server);
-            AiSmallTalk.tick(server);
-            AiSecrets.tick(server);
+            guarded("village events", () -> AiVillageEvents.tick(server));
+            guarded("bubbles", () -> AiBubbles.tick(server));
+            guarded("dates", () -> AiDates.tick(server));
+            guarded("build", () -> AiBuild.tick(server));
+            guarded("small talk", () -> AiSmallTalk.tick(server));
+            guarded("secrets", () -> AiSecrets.tick(server));
+        } else {
+            guarded("village events", () -> AiVillageEvents.idle(server)); // AI switched off: no bar stays up
         }
         if (autoConversations()) {
-            AiInitiative.tick(server);
+            guarded("initiative", () -> AiInitiative.tick(server));
+        }
+    }
+
+    /** Which tick parts already reported a failure, so a broken one logs once instead of every tick. */
+    private static final Set<String> FAILED_TICKS = new java.util.HashSet<>();
+
+    /** One part of the AI tick: a failure is logged and skipped, never allowed to take the server down. */
+    private static void guarded(String part, Runnable tick) {
+        try {
+            tick.run();
+        } catch (RuntimeException e) {
+            if (FAILED_TICKS.add(part)) {
+                McaConversations.LOGGER.error("AI {} tick failed; skipped (logged once)", part, e);
+            }
         }
     }
 
@@ -768,7 +885,12 @@ public final class AiConversations {
         PARTNERS.remove(player);
         AiWork.forgetPlayer(player);
         AiErrands.forgetPlayer(player);
+        AiInitiative.forgetPlayer(player);
+        AiSmallTalk.forgetPlayer(player);
         LAST_FAILURE_NOTICE.remove(player);
+        String suffix = "/" + player;
+        QUEUED.keySet().removeIf(k -> k.endsWith(suffix));
+        RECEIVED.keySet().removeIf(k -> k.endsWith(suffix));
     }
 
     /** Server start: drop memories that faded while the world was closed. */
@@ -783,6 +905,8 @@ public final class AiConversations {
         AiTasks.clear();
         PARTNERS.clear();
         QUEUED.clear();
+        RECEIVED.clear();
+        FAILED_TICKS.clear();
         AiInitiative.reset();
         AiWork.reset();
         AiErrands.reset();
@@ -792,5 +916,6 @@ public final class AiConversations {
         AiSmallTalk.reset();
         AiThreats.reset();
         AiBag.reset();
+        AiDirections.reset();
     }
 }

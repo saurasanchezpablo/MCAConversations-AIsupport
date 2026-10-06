@@ -40,8 +40,77 @@ final class AiConsistency {
     private AiConsistency() {
     }
 
-    /** Pure: the same message, reply, plan and facts always give the same decision. */
+    /**
+     * Pure: the same message, reply, plan and facts always give the same decision.
+     *
+     * <p>The model's own reading of the exchange decides when there is one ({@link AiUnderstanding}: what
+     * was asked, in any language, and what the villager answered). Only a reply without it (an endpoint
+     * that ignores the format, and no second reading to be had) falls back to recognising common Spanish
+     * and English phrasing.
+     */
     static Decision decide(String message, AiReply reply, AiOutcomePlan plan, AiTurnFacts facts) {
+        return reply.understanding().isPresent() ? understood(reply, reply.understanding().get(), plan, facts)
+                : guessed(message, reply, plan, facts);
+    }
+
+    /** Decides from the model's reading of what was asked and answered. Pure. */
+    static Decision understood(AiReply reply, AiUnderstanding reading, AiOutcomePlan plan, AiTurnFacts facts) {
+        Optional<AiActionKind> asked = reading.asked();
+        boolean refused = reading.refused() || (asked.isPresent() && reading.answer() != AiUnderstanding.Answer.YES
+                && reply.deliveryOrDefault().intent() == VoiceIntent.REFUSE);
+        boolean later = reading.answer() == AiUnderstanding.Answer.LATER;
+        Map<AiActionKind, AiCommitment.Claim> claimed = new LinkedHashMap<>();
+
+        // 1. Actions the model attached to the line, whether or not the game allowed them; a request put
+        //    off to another day is not one of them.
+        for (AiEffect effect : reply.effects()) {
+            if (effect instanceof AiEffect.Action a && !(later && asked.equals(Optional.of(a.kind())))) {
+                claimed.putIfAbsent(a.kind(), new AiCommitment.Claim(a.kind(), a.chore()));
+            }
+        }
+        // 2. A yes to what the player asked. Being handed a gift needs no yes: the window opens unless the
+        //    villager turns it down. A request whose details the game could not read (work with no task) is
+        //    not held against the villager: nobody can tell what they agreed to.
+        boolean takesIt = asked.isPresent() && !refused && !later && (reading.agreed()
+                || asked.get() == AiActionKind.GIFT);
+        if (takesIt && (reading.request().isPresent() || !needsDetail(asked.get()))) {
+            claimed.putIfAbsent(asked.get(), new AiCommitment.Claim(asked.get(),
+                    reading.request().flatMap(AiEffect.Action::chore)));
+        }
+
+        if (refused) {
+            return refusal(plan, claimed);
+        }
+        List<AiEffect.Action> run = new ArrayList<>(plan.actions().stream()
+                .filter(a -> !(later && asked.equals(Optional.of(a.kind())))).toList());
+        if (takesIt && run.size() < MAX_RUN && run.stream().noneMatch(a -> a.kind() == asked.get())) {
+            AiEffect.Action wanted = reading.request().orElseGet(() -> new AiEffect.Action(asked.get(), Optional.empty(), 0,
+                    asked.get() == AiActionKind.GIVE ? AiIntent.ALL : "", "", List.of()));
+            boolean grudge = facts.grudge() && !plan.forgive();
+            if (wanted.kind() != AiActionKind.WORK || wanted.chore().isPresent()) {
+                AiOutcomePlan.allowed(wanted, facts, grudge || plan.grudge()).ifPresent(run::add);
+            }
+        }
+        return new Decision(List.copyOf(run), claimed, false);
+    }
+
+    /** A villager who said no: only leaving and stopping still happen, and they are held to nothing else. */
+    private static Decision refusal(AiOutcomePlan plan, Map<AiActionKind, AiCommitment.Claim> claimed) {
+        List<AiEffect.Action> run = plan.actions().stream().filter(a -> EVEN_WHEN_REFUSING.contains(a.kind())).toList();
+        Map<AiActionKind, AiCommitment.Claim> kept = new LinkedHashMap<>();
+        claimed.forEach((k, c) -> {
+            if (EVEN_WHEN_REFUSING.contains(k)) {
+                kept.put(k, c);
+            }
+        });
+        return new Decision(run, kept, true);
+    }
+
+    /**
+     * The fallback for a reply that did not say what was asked or answered: the player's request and the
+     * villager's commitments are recognised from common Spanish and English phrasing. Pure.
+     */
+    static Decision guessed(String message, AiReply reply, AiOutcomePlan plan, AiTurnFacts facts) {
         String line = reply.dialogue();
         boolean refused = reply.deliveryOrDefault().intent() == VoiceIntent.REFUSE || AiCommitment.refuses(line);
         Optional<AiIntent.Intent> asked = AiIntent.detect(message);
@@ -67,14 +136,7 @@ final class AiConsistency {
         }
 
         if (refused) {
-            List<AiEffect.Action> run = plan.actions().stream().filter(a -> EVEN_WHEN_REFUSING.contains(a.kind())).toList();
-            Map<AiActionKind, AiCommitment.Claim> kept = new LinkedHashMap<>();
-            claimed.forEach((k, c) -> {
-                if (EVEN_WHEN_REFUSING.contains(k)) {
-                    kept.put(k, c);
-                }
-            });
-            return new Decision(run, kept, true);
+            return refusal(plan, claimed);
         }
 
         List<AiEffect.Action> run = new ArrayList<>(plan.actions());
@@ -99,9 +161,8 @@ final class AiConsistency {
                 action = new AiEffect.Action(claim.kind(), claim.chore(), 0,
                         claim.kind() == AiActionKind.GIVE ? AiIntent.ALL : "", "", List.of());
             }
-            if (offered(facts, plan, action)) {
-                run.add(action);
-            }
+            boolean grudge = (facts.grudge() && !plan.forgive()) || plan.grudge();
+            AiOutcomePlan.allowed(action, facts, grudge).ifPresent(run::add);
         }
         return new Decision(List.copyOf(run), claimed, false);
     }
@@ -120,11 +181,8 @@ final class AiConsistency {
 
     /** The same rules the plan applies to the model's actions. Pure. */
     static boolean offered(AiTurnFacts facts, AiOutcomePlan plan, AiEffect.Action action) {
-        boolean grudge = facts.grudge() && !plan.forgive();
-        return facts.offeredActions().contains(action.kind().key())
-                && (action.kind() != AiActionKind.WORK
-                || action.chore().map(c -> facts.offeredChores().contains(c.key())).orElse(false))
-                && (!grudge || AiOutcomePlan.ACTIONS_DESPITE_GRUDGE.contains(action.kind()));
+        boolean grudge = (facts.grudge() && !plan.forgive()) || plan.grudge();
+        return AiOutcomePlan.allowed(action, facts, grudge).isPresent();
     }
 
     /** What the villager committed to but did not do, and why. */
@@ -168,6 +226,44 @@ final class AiConsistency {
         }
         if (recentlyReceived) {
             return Optional.empty();
+        }
+        return Optional.of(new AiActions.Issue(playerName + " has not given you anything just now; do not thank them for "
+                + "a gift you did not receive", AiLines.variant("cannot.generic")));
+    }
+
+    /**
+     * As {@link #receipt(String, java.util.function.Predicate, boolean, String)}, from the model's own
+     * reading of its line when it gave one ({@code received}), in any language; otherwise from the line's
+     * Spanish or English wording.
+     *
+     * @param holds   whether the villager has that item now
+     * @param toolFor the task an item is the tool for, if it is one
+     */
+    static Optional<AiActions.Issue> receipt(AiReply reply, java.util.function.Predicate<String> holds,
+                                             java.util.function.Function<String, Optional<AiChore>> toolFor,
+                                             java.util.function.Predicate<AiChore> hasTool, boolean recentlyReceived,
+                                             String playerName) {
+        if (reply.understanding().isEmpty()) {
+            return receipt(reply.dialogue(), hasTool, recentlyReceived, playerName);
+        }
+        Optional<String> received = reply.understanding().get().received();
+        if (received.isEmpty() || recentlyReceived) {
+            return Optional.empty();
+        }
+        String item = received.get();
+        if (!item.equals(AiUnderstanding.SOMETHING)) {
+            Optional<AiChore> tool = toolFor.apply(item);
+            if (holds.test(item) || tool.map(hasTool::test).orElse(false)) {
+                return Optional.empty(); // they do have it: perhaps lent earlier
+            }
+            if (tool.isPresent()) {
+                return Optional.of(new AiActions.Issue(playerName + " has NOT given you " + tool.get().tool()
+                        + ": you still do not have one. Do not thank them for it; if you need it, ask for it",
+                        AiLines.variant("work_no_tool", net.minecraft.network.chat.Component.translatable(
+                                "mcaconversations.ai.tool." + tool.get().key()))));
+            }
+            return Optional.of(new AiActions.Issue(playerName + " has not given you " + AiContextFormat.words(item)
+                    + "; you do not have it. Do not thank them for it", AiLines.variant("cannot.generic")));
         }
         return Optional.of(new AiActions.Issue(playerName + " has not given you anything just now; do not thank them for "
                 + "a gift you did not receive", AiLines.variant("cannot.generic")));

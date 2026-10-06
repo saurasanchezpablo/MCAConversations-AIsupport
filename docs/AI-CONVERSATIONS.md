@@ -68,8 +68,13 @@ A superset of MCA's `StructuredResponse`, so MCA's field names keep working:
  "assessment": {"impact": "positive", "confidence": 0.85},
  "emotion": "grateful",
  "memory": {"text": "Steve thanked me for guarding the gate.", "importance": "medium"},
- "effects": [{"type": "disposition", "axis": "trust", "direction": "up"}]}
+ "effects": [{"type": "disposition", "axis": "trust", "direction": "up"}],
+ "request": null,
+ "received": null}
 ```
+
+`request` and `received` are asked for only when the villager could do something for the player this
+turn (see "Understanding requests in any language" below).
 
 The model never names a number of hearts. Every field is parsed into a closed vocabulary with bounded
 values; unknown fields, unknown effect types and out-of-range values are dropped individually. A
@@ -544,13 +549,53 @@ The diary lists:
 - quarrels, secrets entrusted, and childhood memories;
 - what people say about you.
 
+### Understanding requests in any language (`AiUnderstanding`, `AiJudge`)
+What the player asked for, and what the villager answered, is read by the model, not matched against
+phrases. So "¿me cortas leña?", "Kannst du Holz hacken?", "I could really use some wood", "tiens, c'est pour
+toi" or "返してくれる？" all work the same way.
+
+1. **The reply reads itself.** Whenever an action is on offer, the reply carries
+   `"request": {"do": <action>, ...its details..., "answer": "yes|no|later"}` and
+   `"received": <item id> | "something" | null`. The prompt tells the model to read the meaning of the
+   player's last message in whatever language and words it is written, together with the conversation so
+   far:
+   - a question, a hint, handing something over, asking for something back, or a yes to something the
+     villager offered earlier all count as requests;
+   - asking for something the villager carries, or for something lent back, is `give` with that item;
+   - wanting to hand the villager something is `gift`.
+2. **A second reading when the reply leaves it out** (`ai.actionJudge`, server config):
+   - `WHEN_MISSING` (default): a short second request (`AiJudge`, 10 s) is shown the player's message, the
+     villager's line, the last four lines and the action menu, and answers with the same two fields.
+   - `ALWAYS`: that second reading runs after every exchange where the villager could act, and its answer
+     wins. This is more reliable with small models, at the cost of one more request per line.
+   - `OFF`: no second request is made.
+
+   The turn stays in flight until the reading is done.
+3. **The game still decides** (`AiConsistency.understood`):
+   - **yes:** the request runs, with its details, if it was offered to this villager now (the same rule
+     `AiOutcomePlan.allowed` applies to the model's own actions). The villager is held to it.
+   - **no:** nothing runs on the villager's behalf except stop_work, move and go_home.
+   - **later:** nothing runs now, and the line is not corrected.
+   - `gift` opens the gift window unless the answer is no.
+   - A `received` claim is checked against the villager's inventory and the gifts, loans and bag changes
+     of the last minute.
+   - Handing back an item the player lent (`give` with that item) settles the loan. If it was the tool for
+     a job, the job stops.
+4. **Last resort.** Only a reply with no reading at all, when the second reading failed or is off, falls
+   back to the Spanish and English phrase lists below. For players whose game is in another language that
+   fallback is skipped, so look-alike words ("pesca", "toma") never trigger anything; only the model's own
+   attached actions run.
+
+Replies are written in the player's game language. Every game language is named for the model
+(`GameLanguage`: "German (Germany)", "Simplified Chinese"...), and voices use a native accent for it.
+
 ### Requests that always land
 - **Who can be asked:** tasks and errands (work, give, pick up, store, fetch, breed, cook, build) are
   offered to every adult or teen villager who is not hostile or tense. The model decides whether that
   villager is willing. Before, only friends and family could be asked, so other villagers agreed and
   then stood still.
-- **Safety net (`AiIntent`):** when the model agrees but leaves out the action, the player's own words
-  decide. The detector reads Spanish and English requests ("ve a talar 20 troncos", "toma, te doy esto",
+- **Safety net (`AiIntent`, fallback only; see above):** when a reply carries no reading of the request
+  and none could be had, and the model agrees but leaves out the action, the player's own words decide. The detector reads Spanish and English requests ("ve a talar 20 troncos", "toma, te doy esto",
   "dame lo que has recogido", "constrúyeme una cabaña", "go fishing"). It then carries out the request,
   but only if all of these hold:
   - the reply is not a refusal and not negative;

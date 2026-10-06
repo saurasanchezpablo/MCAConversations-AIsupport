@@ -27,7 +27,8 @@ final class AiDirections {
     static final int SEARCH_RADIUS_CHUNKS = 48;
     /** Least ticks between two structure searches on the whole server; a search can be costly. */
     static final long SEARCH_COOLDOWN_TICKS = 200;
-    private static long lastSearch = Long.MIN_VALUE;
+    private static final long NEVER = Long.MIN_VALUE;
+    private static long lastSearch = NEVER;
     /** The directions follow the villager's reply, never precede it. */
     static final long LINE_DELAY_TICKS = 20;
 
@@ -39,17 +40,19 @@ final class AiDirections {
         try {
             if (place.building().isPresent()) {
                 BlockPos target = place.building().get();
-                AiLines.sayLater(villager, player, AiLines.variant("directions_building", place.label(),
+                // MCA names its building types in every language it ships; the English label is the fallback.
+                Component name = Component.translatableWithFallback("buildingType." + place.token(), place.label());
+                AiLines.sayLater(villager, player, AiLines.variant("directions_building", name,
                         compass(villager.blockPosition(), target), blocks(villager.blockPosition(), target)), villagerName,
                         now, LINE_DELAY_TICKS);
                 return;
             }
-            if (place.structure().isEmpty() || !pair.claimDirections(day)) {
+            // Someone else's search just ran: this one waits, and the pair keeps today's directions.
+            if (place.structure().isEmpty() || !searchReady(lastSearch, now) || !pair.claimDirections(day)) {
                 return;
             }
-            Optional<BlockPos> found = now - lastSearch >= SEARCH_COOLDOWN_TICKS
-                    ? locate(level, villager.blockPosition(), place) : Optional.empty();
             lastSearch = now;
+            Optional<BlockPos> found = locate(level, villager.blockPosition(), place);
             if (found.isPresent()) {
                 BlockPos target = found.get();
                 AiLines.sayLater(villager, player, AiLines.variant("directions_structure", place.label(),
@@ -62,6 +65,16 @@ final class AiDirections {
         } catch (Throwable t) {
             McaConversations.LOGGER.debug("AI directions failed", t);
         }
+    }
+
+    /** Whether the server-wide search cooldown has passed (a clock set back counts as passed). Pure. */
+    static boolean searchReady(long last, long now) {
+        return last == NEVER || now < last || now - last >= SEARCH_COOLDOWN_TICKS;
+    }
+
+    /** Server stopped: the next world starts with no search behind it. */
+    static void reset() {
+        lastSearch = NEVER;
     }
 
     private static Optional<BlockPos> locate(ServerLevel level, BlockPos from, AiSocial.Place place) {

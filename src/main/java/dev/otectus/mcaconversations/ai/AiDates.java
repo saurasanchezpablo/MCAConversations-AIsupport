@@ -68,10 +68,13 @@ final class AiDates {
         long now = server.overworld().getDayTime();
         BlockPos spot = player.blockPosition();
         String label = "";
+        Component shown = Component.translatable("mcaconversations.ai.date.here");
         AiSocial.Place place = action.place().isEmpty() ? null : turn.places().get(action.place());
         if (place != null && place.building().isPresent()) {
             spot = AiVillageEvents.ground(player.serverLevel(), place.building().get());
             label = place.label();
+            // MCA names its building types in every language it ships; the English label is the fallback.
+            shown = Component.translatableWithFallback("buildingType." + place.token(), label);
         }
         long start = startFor(action.amount(), now);
         AiLivesSavedData data = AiLivesSavedData.get(server);
@@ -80,7 +83,7 @@ final class AiDates {
         String whenKey = when.equals("now") ? "now" : when.startsWith("tomorrow") ? "tomorrow" : "evening";
         player.displayClientMessage(Component.translatable("mcaconversations.ai.date.set", villagerName,
                 Component.translatable("mcaconversations.ai.date.when." + whenKey),
-                label.isEmpty() ? Component.translatable("mcaconversations.ai.date.here") : Component.literal(label))
+                shown)
                 .withStyle(ChatFormatting.LIGHT_PURPLE), true);
         remember(server, villager.getUUID(), player, "I agreed to go on a date with " + player.getName().getString() + " "
                 + when + (label.isEmpty() ? "" : " at the " + label) + ".", AiImportance.MEDIUM, AiSentiment.POSITIVE);
@@ -111,8 +114,10 @@ final class AiDates {
             }
             step(server, data, date, now);
         }
-        data.dates().removeIf(d -> d.state == AiLivesSavedData.Date.State.DONE
-                && now - d.stateSince > AiVillageEventType.DAY * 2L);
+        if (data.dates().removeIf(d -> d.state == AiLivesSavedData.Date.State.DONE
+                && now - d.stateSince > AiVillageEventType.DAY * 2L)) {
+            data.changed();
+        }
     }
 
     private static void step(MinecraftServer server, AiLivesSavedData data, AiLivesSavedData.Date date, long now) {
@@ -194,7 +199,7 @@ final class AiDates {
                         + " stood me up" + where + ". I waited and they never came.", AiImportance.HIGH),
                 AiSentiment.STRONGLY_NEGATIVE, day(server), cap());
         if (player != null && villager != null) {
-            hearts(server, villager, player, STOOD_UP_HEARTS, "ai.date.stood." + date.start);
+            hearts(server, villager, player, STOOD_UP_HEARTS, "ai.date.stood", date.start);
             StateTracker.apply(villager, player, ConversationState.ANNOYED);
             player.displayClientMessage(Component.translatable("mcaconversations.ai.date.stood_up", date.villagerName)
                     .withStyle(ChatFormatting.RED), true);
@@ -220,11 +225,11 @@ final class AiDates {
         }
         switch (outcome) {
             case LOVELY -> {
-                hearts(server, villager, player, GOOD_HEARTS, "ai.date.good." + date.start);
+                hearts(server, villager, player, GOOD_HEARTS, "ai.date.good", date.start);
                 StateTracker.apply(villager, player, ConversationState.SMITTEN);
             }
             case BAD -> {
-                hearts(server, villager, player, BAD_HEARTS, "ai.date.bad." + date.start);
+                hearts(server, villager, player, BAD_HEARTS, "ai.date.bad", date.start);
                 StateTracker.apply(villager, player, ConversationState.ANNOYED);
             }
             default -> {
@@ -250,10 +255,12 @@ final class AiDates {
         return turns >= 2 && warm > cold ? Outcome.LOVELY : Outcome.AWKWARD;
     }
 
-    private static void hearts(MinecraftServer server, Entity villager, ServerPlayer player, int delta, String id) {
+    /** One payout per outcome kind and day (a fixed decision id, so dates never fill the once-ever ledger). */
+    private static void hearts(MinecraftServer server, Entity villager, ServerPlayer player, int delta, String kind,
+                               long start) {
         if (McaConversationsConfig.aiRelationshipEffects()) {
-            AiHearts.grant(server, villager, player, "ai.date", delta, DepthClass.STANDARD, ReplayPolicy.ONCE, 0, 0,
-                    id + "." + villager.getUUID(), villager.level().getGameTime());
+            AiHearts.grant(server, villager, player, kind, delta, DepthClass.STANDARD, ReplayPolicy.ONCE_PER_DAY, 0, 0,
+                    kind + "." + start + "." + villager.getUUID(), villager.level().getGameTime());
         }
     }
 

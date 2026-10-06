@@ -119,10 +119,17 @@ public final class AiMemoryStore {
         return List.copyOf(opinions.getOrDefault(villager, List.of()));
     }
 
-    /** Moves one axis of one opinion by {@code delta}, creating it; the least held opinion makes room. */
+    /**
+     * Moves one axis of one opinion by {@code delta}, creating it; the least held opinion makes room.
+     * Villagers holding opinions are capped like pairs: the one whose opinions changed longest ago goes.
+     */
     public AiNeighbourOpinion adjustOpinion(UUID villager, UUID target, String targetName, String axis, int delta,
                                             String cause, long today) {
-        List<AiNeighbourOpinion> list = opinions.computeIfAbsent(villager, k -> new java.util.ArrayList<>());
+        List<AiNeighbourOpinion> list = opinions.remove(villager);
+        if (list == null) {
+            list = new java.util.ArrayList<>();
+        }
+        opinions.put(villager, list); // insertion order is write order, as for pairs
         AiNeighbourOpinion current = list.stream().filter(o -> o.target().equals(target)).findFirst()
                 .orElse(new AiNeighbourOpinion(target, targetName, 0, 0, 0, "", today));
         list.remove(current);
@@ -135,7 +142,19 @@ public final class AiMemoryStore {
                     Math.abs(o.warmth()) + Math.abs(o.trust()) + Math.abs(o.respect()))
                     .thenComparingLong(AiNeighbourOpinion::day)).orElseThrow());
         }
+        if (list.isEmpty()) {
+            opinions.remove(villager);
+        }
+        capOpinions();
         return next;
+    }
+
+    private void capOpinions() {
+        while (opinions.size() > maxPairs) {
+            Iterator<UUID> oldest = opinions.keySet().iterator();
+            oldest.next();
+            oldest.remove();
+        }
     }
 
     /**
@@ -225,6 +244,7 @@ public final class AiMemoryStore {
                 });
             }
         }
+        store.capOpinions();
         return store;
     }
 }

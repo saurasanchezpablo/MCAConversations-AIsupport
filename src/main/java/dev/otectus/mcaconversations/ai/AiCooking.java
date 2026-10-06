@@ -61,8 +61,12 @@ final class AiCooking {
     record Found(BlockPos pos, Station station) {
     }
 
-    /** What one trip to the station turns into. */
-    record Plan(List<ItemStack> results, List<ItemStack> leftovers, int cooked, int ticks, float experience) {
+    /**
+     * What one trip to the station turns into. {@code spent} is the villager's own fuel that burned (one
+     * stack per kind and count), so a loan of it can be settled.
+     */
+    record Plan(List<ItemStack> results, List<ItemStack> leftovers, int cooked, int ticks, float experience,
+                List<ItemStack> spent) {
     }
 
     private AiCooking() {
@@ -152,14 +156,20 @@ final class AiCooking {
         int wanted = cook.stream().mapToInt(ItemStack::getCount).sum();
         int need = wanted * BURN_PER_ITEM;
         int burn = burn(fuel, need, type, leftovers);
+        List<ItemStack> spent = new ArrayList<>();
         if (burn < need && villagerInventory != null) {
             for (int i = 0; i < villagerInventory.getContainerSize() && burn < need; i++) {
                 ItemStack own = villagerInventory.getItem(i);
                 if (!own.isEmpty() && !own.isDamageableItem() && own.getBurnTime(type) > 0
                         && recipe(level, station, own).isEmpty()) {
+                    ItemStack before = own.copy();
                     List<ItemStack> one = new ArrayList<>(List.of(own));
                     burn += burn(one, need - burn, type, leftovers);
                     villagerInventory.setItem(i, one.isEmpty() ? ItemStack.EMPTY : one.get(0));
+                    int used = before.getCount() - (one.isEmpty() ? 0 : one.get(0).getCount());
+                    if (used > 0) {
+                        spent.add(before.copyWithCount(used));
+                    }
                 }
             }
             villagerInventory.setChanged();
@@ -174,9 +184,12 @@ final class AiCooking {
         for (ItemStack raw : cook) {
             AbstractCookingRecipe recipe = recipe(level, station, raw).orElse(null);
             int n = recipe == null ? 0 : Math.min(raw.getCount(), canCook - cooked);
-            if (n > 0) {
-                ItemStack out = recipe.assemble(new SingleRecipeInput(raw), level.registryAccess());
-                out.setCount(Math.min(out.getMaxStackSize() * 4, out.getCount() * n));
+            ItemStack out = n > 0 ? recipe.assemble(new SingleRecipeInput(raw), level.registryAccess()) : ItemStack.EMPTY;
+            if (!out.isEmpty()) {
+                // No more is cooked than the batch carries back (four stacks); the rest stays raw.
+                int each = out.getCount();
+                n = Math.min(n, Math.max(1, out.getMaxStackSize() * 4 / each));
+                out.setCount(each * n);
                 while (out.getCount() > out.getMaxStackSize()) {
                     results.add(out.split(out.getMaxStackSize()));
                 }
@@ -190,7 +203,7 @@ final class AiCooking {
                 leftovers.add(raw);
             }
         }
-        return new Plan(results, leftovers, cooked, ticks, experience);
+        return new Plan(results, leftovers, cooked, ticks, experience, spent);
     }
 
     /**

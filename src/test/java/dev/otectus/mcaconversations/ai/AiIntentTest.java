@@ -76,6 +76,10 @@ class AiIntentTest {
         none("do you know how to fish?");
         none("ayer estuve hablando con alguien que dijo que en el bosque se puede talar mucho");
         none("me encantan los tomates");
+        none("me gusta pescar");
+        none("I like to fish");
+        none("mi madre toma café por las mañanas");
+        none("do you have this in stock?");
     }
 
     @Test

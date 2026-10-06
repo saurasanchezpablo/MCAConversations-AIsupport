@@ -59,12 +59,19 @@ final class AiGiftMenu extends ChestMenu {
             return;
         }
         settled = true;
+        // Gone (dead, or leaving with the inventory already saved): nothing is given, and the items land
+        // where they were, as vanilla does with any container's contents.
+        boolean gone = !serverPlayer.isAlive() || serverPlayer.hasDisconnected();
         for (int slot = 0; slot < gifts.getContainerSize(); slot++) {
             ItemStack stack = gifts.removeItemNoUpdate(slot);
             if (stack.isEmpty()) {
                 continue;
             }
-            Optional<AiChore> waiting = AiWork.awaiting(villager.getUUID());
+            if (gone) {
+                serverPlayer.drop(stack, false);
+                continue;
+            }
+            Optional<AiChore> waiting = AiWork.awaiting(villager.getUUID(), villager.level().getGameTime());
             if (villager.isAlive() && waiting.isPresent() && AiWork.tool(waiting.get()).test(stack)) {
                 // The tool they asked for: a loan for the job, not a present for MCA to keep.
                 String name = McaCompat.getVillagerName(villager).orElse(villager.getName().getString());
